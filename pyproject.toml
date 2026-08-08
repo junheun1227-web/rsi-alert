@@ -1,0 +1,2 @@
+[tool.vercel]
+entrypoint = "api.kakao_skill:handler"
