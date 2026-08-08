@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-08-08 11:46:39",
+  "updated_at": "2026-08-08 13:58:33",
   "tickers": {
     "AAPL": {
       "name": "Apple",
@@ -9,55 +9,55 @@
       "results": {
         "RSI(14)": {
           "available": true,
-          "buy": 0,
-          "sell": 0,
+          "buy": 0.0,
+          "sell": 0.0,
           "value": "47.6",
           "detail": "47.6 (중립)",
-          "raw_rsi": 47.58548891445591
+          "raw_rsi": 47.585488914457436
         },
         "볼린저밴드 %B": {
           "available": true,
-          "buy": 0,
-          "sell": 0,
+          "buy": 0.0,
+          "sell": 0.0,
           "value": "0.28",
           "detail": "%B=0.28 (밴드폭 14.0%)"
         },
         "이동평균선": {
           "available": true,
-          "buy": 0,
-          "sell": 5,
+          "buy": 0.0,
+          "sell": 10.0,
           "value": "혼조",
-          "detail": "5/20/60일선 309.9/323.4/308.6 (혼조, 20일선 이격도 -3.1%)"
+          "detail": "5/20/60일선 309.9/323.4/308.6 (혼조, 최근 데드크로스, 20일선 이격도 -3.1%)"
         },
         "MACD": {
           "available": true,
-          "buy": 5,
-          "sell": 0,
+          "buy": 5.0,
+          "sell": 10.0,
           "value": "0.88",
-          "detail": "MACD 0.88 / Signal 4.06 (0선 위, 교차 없음)"
+          "detail": "MACD 0.88 / Signal 4.06 (0선 위, MACD<시그널)"
         },
         "거래량": {
           "available": true,
-          "buy": 0,
-          "sell": 6,
+          "buy": 0.0,
+          "sell": 6.0,
           "value": "61%",
           "detail": "20일 평균 대비 61% (양봉)"
         },
         "일목균형표": {
           "available": true,
-          "buy": 9,
-          "sell": 0,
+          "buy": 15.0,
+          "sell": 0.0,
           "value": "구름 위",
           "detail": "구름 위, 전환선 322.3 / 기준선 319.1, 구름두께 0.2%, 후행스팬 우호적"
         }
       },
-      "adx": 23.649715760198223,
+      "adx": 23.649715760035907,
       "regime": "중립",
       "adjustments": [
         "장세: ADX 23.6 (중립)"
       ],
-      "buy_score": 14.0,
-      "sell_score": 11.0,
+      "buy_score": 20.0,
+      "sell_score": 26.0,
       "verdict": "관망",
       "emoji": "🟡",
       "gate_applied": false,
@@ -72,59 +72,60 @@
       "results": {
         "RSI(14)": {
           "available": true,
-          "buy": 0,
-          "sell": 20,
+          "buy": 0.0,
+          "sell": 10.0,
           "value": "78.1",
           "detail": "78.1 (과매수)",
-          "raw_rsi": 78.14529948493815
+          "raw_rsi": 78.14529948387555
         },
         "볼린저밴드 %B": {
           "available": true,
-          "buy": 0,
-          "sell": 9,
+          "buy": 0.0,
+          "sell": 4.5,
           "value": "0.91",
           "detail": "%B=0.91 (밴드폭 43.7%)"
         },
         "이동평균선": {
           "available": true,
-          "buy": 10,
-          "sell": 0,
+          "buy": 22.5,
+          "sell": 0.0,
           "value": "정배열",
           "detail": "5/20/60일선 493.6/423.8/408.5 (정배열, 20일선 이격도 +18.0%)"
         },
         "MACD": {
           "available": true,
-          "buy": 5,
-          "sell": 0,
+          "buy": 22.5,
+          "sell": 0.0,
           "value": "27.58",
-          "detail": "MACD 27.58 / Signal 16.28 (0선 위, 교차 없음)"
+          "detail": "MACD 27.58 / Signal 16.28 (0선 위, MACD>시그널)"
         },
         "거래량": {
           "available": true,
-          "buy": 0,
-          "sell": 6,
+          "buy": 0.0,
+          "sell": 6.0,
           "value": "73%",
           "detail": "20일 평균 대비 73% (양봉)"
         },
         "일목균형표": {
           "available": true,
-          "buy": 9,
-          "sell": 0,
+          "buy": 15.0,
+          "sell": 0.0,
           "value": "구름 위",
           "detail": "구름 위, 전환선 447.0 / 기준선 439.3, 구름두께 3.9%, 후행스팬 우호적"
         }
       },
-      "adx": 28.80152401093317,
+      "adx": 28.801523438610385,
       "regime": "추세장",
       "adjustments": [
         "장세: ADX 28.8 (추세장)",
-        "RSI·볼린저 x0.5, 이평선·MACD x1.5 적용"
+        "RSI·볼린저 x0.5, 이평선·MACD x1.5 적용 (지표별 점수에 반영됨)",
+        "RSI 게이트: RSI 78.1 >= 70(과매수), 매수 판정 무효화 -> 관망"
       ],
-      "buy_score": 31.5,
+      "buy_score": 60.0,
       "sell_score": 20.5,
       "verdict": "관망",
       "emoji": "🟡",
-      "gate_applied": false,
+      "gate_applied": true,
       "conflicts": [
         "RSI는 매도 쪽, 이동평균선은 매수 쪽을 가리킵니다"
       ],
@@ -138,55 +139,55 @@
       "results": {
         "RSI(14)": {
           "available": true,
-          "buy": 0,
-          "sell": 0,
+          "buy": 0.0,
+          "sell": 0.0,
           "value": "50.7",
           "detail": "50.7 (중립)",
-          "raw_rsi": 50.74986677254944
+          "raw_rsi": 50.74986677254168
         },
         "볼린저밴드 %B": {
           "available": true,
-          "buy": 0,
-          "sell": 0,
+          "buy": 0.0,
+          "sell": 0.0,
           "value": "0.58",
           "detail": "%B=0.58 (밴드폭 19.4%)"
         },
         "이동평균선": {
           "available": true,
-          "buy": 5,
-          "sell": 0,
+          "buy": 5.0,
+          "sell": 0.0,
           "value": "혼조",
-          "detail": "5/20/60일선 365.1/348.8/362.4 (혼조, 20일선 이격도 +1.6%)"
+          "detail": "5/20/60일선 365.1/348.8/362.4 (혼조, 최근 골든크로스, 20일선 이격도 +1.6%)"
         },
         "MACD": {
           "available": true,
-          "buy": 5,
-          "sell": 0,
+          "buy": 7.5,
+          "sell": 0.0,
           "value": "0.95",
-          "detail": "MACD 0.95 / Signal -2.04 (0선 위, 교차 없음)"
+          "detail": "MACD 0.95 / Signal -2.04 (0선 위, MACD>시그널)"
         },
         "거래량": {
           "available": true,
-          "buy": 0,
-          "sell": 0,
+          "buy": 0.0,
+          "sell": 0.0,
           "value": "61%",
           "detail": "20일 평균 대비 61% (음봉)"
         },
         "일목균형표": {
           "available": true,
-          "buy": 5,
-          "sell": 10,
+          "buy": 5.0,
+          "sell": 10.0,
           "value": "구름 아래",
           "detail": "구름 아래, 전환선 354.5 / 기준선 349.7, 구름두께 3.8%, 후행스팬 비우호적"
         }
       },
-      "adx": 16.24689090442924,
+      "adx": 16.246890904945847,
       "regime": "횡보장",
       "adjustments": [
         "장세: ADX 16.2 (횡보장)",
-        "RSI·볼린저 x1.5, 이평선·MACD x0.5 적용"
+        "RSI·볼린저 x1.5, 이평선·MACD x0.5 적용 (지표별 점수에 반영됨)"
       ],
-      "buy_score": 10.0,
+      "buy_score": 17.5,
       "sell_score": 10.0,
       "verdict": "관망",
       "emoji": "🟡",
@@ -202,44 +203,44 @@
       "results": {
         "RSI(14)": {
           "available": true,
-          "buy": 0,
-          "sell": 12,
+          "buy": 0.0,
+          "sell": 6.0,
           "value": "64.2",
           "detail": "64.2 (중립)",
           "raw_rsi": 64.21346991251909
         },
         "볼린저밴드 %B": {
           "available": true,
-          "buy": 0,
-          "sell": 9,
+          "buy": 0.0,
+          "sell": 4.5,
           "value": "0.82",
           "detail": "%B=0.82 (밴드폭 28.4%)"
         },
         "이동평균선": {
           "available": true,
-          "buy": 10,
-          "sell": 0,
+          "buy": 30.0,
+          "sell": 0.0,
           "value": "정배열",
-          "detail": "5/20/60일선 276.2/251.6/250.6 (정배열, 20일선 이격도 +9.1%)"
+          "detail": "5/20/60일선 276.2/251.6/250.6 (정배열, 최근 골든크로스, 20일선 이격도 +9.1%)"
         },
         "MACD": {
           "available": true,
-          "buy": 5,
-          "sell": 0,
+          "buy": 22.5,
+          "sell": 0.0,
           "value": "7.58",
-          "detail": "MACD 7.58 / Signal 3.49 (0선 위, 교차 없음)"
+          "detail": "MACD 7.58 / Signal 3.49 (0선 위, MACD>시그널)"
         },
         "거래량": {
           "available": true,
-          "buy": 0,
-          "sell": 6,
+          "buy": 0.0,
+          "sell": 6.0,
           "value": "68%",
           "detail": "20일 평균 대비 68% (양봉)"
         },
         "일목균형표": {
           "available": true,
-          "buy": 4,
-          "sell": 0,
+          "buy": 10.0,
+          "sell": 0.0,
           "value": "구름 위",
           "detail": "구름 위, 전환선 256.7 / 기준선 256.7, 구름두께 3.0%, 후행스팬 우호적"
         }
@@ -248,12 +249,12 @@
       "regime": "추세장",
       "adjustments": [
         "장세: ADX 26.5 (추세장)",
-        "RSI·볼린저 x0.5, 이평선·MACD x1.5 적용"
+        "RSI·볼린저 x0.5, 이평선·MACD x1.5 적용 (지표별 점수에 반영됨)"
       ],
-      "buy_score": 26.5,
+      "buy_score": 62.5,
       "sell_score": 16.5,
-      "verdict": "관망",
-      "emoji": "🟡",
+      "verdict": "매수",
+      "emoji": "🟢",
       "gate_applied": false,
       "conflicts": [
         "RSI는 매도 쪽, 이동평균선은 매수 쪽을 가리킵니다"
@@ -268,57 +269,58 @@
       "results": {
         "RSI(14)": {
           "available": true,
-          "buy": 0,
-          "sell": 0,
+          "buy": 0.0,
+          "sell": 0.0,
           "value": "47.7",
           "detail": "47.7 (중립)",
-          "raw_rsi": 47.67935885729781
+          "raw_rsi": 47.679358857282594
         },
         "볼린저밴드 %B": {
           "available": true,
-          "buy": 0,
-          "sell": 0,
+          "buy": 0.0,
+          "sell": 0.0,
           "value": "0.37",
           "detail": "%B=0.37 (밴드폭 25.1%)"
         },
         "이동평균선": {
           "available": true,
-          "buy": 0,
-          "sell": 5,
+          "buy": 0.0,
+          "sell": 2.5,
           "value": "혼조",
           "detail": "5/20/60일선 589.8/612.3/601.8 (혼조, 20일선 이격도 -3.3%)"
         },
         "MACD": {
           "available": true,
-          "buy": 0,
-          "sell": 5,
+          "buy": 0.0,
+          "sell": 7.5,
           "value": "-7.51",
-          "detail": "MACD -7.51 / Signal -5.02 (0선 아래, 교차 없음)"
+          "detail": "MACD -7.51 / Signal -5.02 (0선 아래, MACD<시그널)"
         },
         "거래량": {
           "available": true,
-          "buy": 0,
-          "sell": 6,
+          "buy": 0.0,
+          "sell": 6.0,
           "value": "60%",
           "detail": "20일 평균 대비 60% (양봉)"
         },
         "일목균형표": {
           "available": true,
-          "buy": 0,
-          "sell": 9,
+          "buy": 0.0,
+          "sell": 9.0,
           "value": "구름 안",
           "detail": "구름 안, 전환선 562.7 / 기준선 605.3, 구름두께 4.7%, 후행스팬 비우호적"
         }
       },
-      "adx": 15.710884001428497,
+      "adx": 15.71088400020072,
       "regime": "횡보장",
       "adjustments": [
         "장세: ADX 15.7 (횡보장)",
-        "RSI·볼린저 x1.5, 이평선·MACD x0.5 적용",
-        "하락추세 방어: 종가<120일선, 매수 -15"
+        "RSI·볼린저 x1.5, 이평선·MACD x0.5 적용 (지표별 점수에 반영됨)",
+        "하락추세 방어: 종가가 120일선 대비 -3.7%, 매수 -10",
+        "매수 소계 0.0점 → 보정 후 0.0점"
       ],
       "buy_score": 0,
-      "sell_score": 20.0,
+      "sell_score": 25.0,
       "verdict": "관망",
       "emoji": "🟡",
       "gate_applied": false,
@@ -333,55 +335,55 @@
       "results": {
         "RSI(14)": {
           "available": true,
-          "buy": 0,
-          "sell": 12,
+          "buy": 0.0,
+          "sell": 18.0,
           "value": "64.4",
           "detail": "64.4 (중립)",
-          "raw_rsi": 64.41933537829168
+          "raw_rsi": 64.41933537828035
         },
         "볼린저밴드 %B": {
           "available": true,
-          "buy": 0,
-          "sell": 9,
+          "buy": 0.0,
+          "sell": 13.5,
           "value": "1.00",
           "detail": "%B=1.00 (밴드폭 16.7%)"
         },
         "이동평균선": {
           "available": true,
-          "buy": 5,
-          "sell": 0,
+          "buy": 5.0,
+          "sell": 0.0,
           "value": "혼조",
-          "detail": "5/20/60일선 216.2/206.8/208.6 (혼조, 20일선 이격도 +8.3%)"
+          "detail": "5/20/60일선 216.2/206.8/208.6 (혼조, 최근 골든크로스, 20일선 이격도 +8.3%)"
         },
         "MACD": {
           "available": true,
-          "buy": 5,
-          "sell": 0,
+          "buy": 10.0,
+          "sell": 0.0,
           "value": "3.06",
-          "detail": "MACD 3.06 / Signal 0.56 (0선 위, 교차 없음)"
+          "detail": "MACD 3.06 / Signal 0.56 (0선 위, MACD>시그널, 최근 상향돌파)"
         },
         "거래량": {
           "available": true,
-          "buy": 0,
-          "sell": 0,
+          "buy": 0.0,
+          "sell": 0.0,
           "value": "82%",
           "detail": "20일 평균 대비 82% (양봉)"
         },
         "일목균형표": {
           "available": true,
-          "buy": 4,
-          "sell": 0,
+          "buy": 10.0,
+          "sell": 0.0,
           "value": "구름 위",
           "detail": "구름 위, 전환선 207.4 / 기준선 207.4, 구름두께 3.0%, 후행스팬 우호적"
         }
       },
-      "adx": 17.715463989019796,
+      "adx": 17.715463987579103,
       "regime": "횡보장",
       "adjustments": [
         "장세: ADX 17.7 (횡보장)",
-        "RSI·볼린저 x1.5, 이평선·MACD x0.5 적용"
+        "RSI·볼린저 x1.5, 이평선·MACD x0.5 적용 (지표별 점수에 반영됨)"
       ],
-      "buy_score": 9.0,
+      "buy_score": 25.0,
       "sell_score": 31.5,
       "verdict": "관망",
       "emoji": "🟡",
@@ -399,44 +401,44 @@
       "results": {
         "RSI(14)": {
           "available": true,
-          "buy": 0,
-          "sell": 0,
+          "buy": 0.0,
+          "sell": 0.0,
           "value": "41.4",
           "detail": "41.4 (중립)",
           "raw_rsi": 41.407464805648615
         },
         "볼린저밴드 %B": {
           "available": true,
-          "buy": 0,
-          "sell": 0,
+          "buy": 0.0,
+          "sell": 0.0,
           "value": "0.40",
           "detail": "%B=0.40 (밴드폭 42.1%)"
         },
         "이동평균선": {
           "available": true,
-          "buy": 0,
-          "sell": 10,
+          "buy": 0.0,
+          "sell": 22.5,
           "value": "역배열",
           "detail": "5/20/60일선 323.8/343.3/388.0 (역배열, 20일선 이격도 -4.3%)"
         },
         "MACD": {
           "available": true,
-          "buy": 15,
-          "sell": 5,
+          "buy": 22.5,
+          "sell": 7.5,
           "value": "-19.76",
-          "detail": "MACD -19.76 / Signal -20.78 (0선 아래, 시그널 상향돌파)"
+          "detail": "MACD -19.76 / Signal -20.78 (0선 아래, MACD>시그널, 최근 상향돌파)"
         },
         "거래량": {
           "available": true,
-          "buy": 0,
-          "sell": 0,
+          "buy": 0.0,
+          "sell": 0.0,
           "value": "101%",
           "detail": "20일 평균 대비 101% (양봉)"
         },
         "일목균형표": {
           "available": true,
-          "buy": 0,
-          "sell": 9,
+          "buy": 0.0,
+          "sell": 15.0,
           "value": "구름 아래",
           "detail": "구름 아래, 전환선 315.6 / 기준선 364.9, 구름두께 1.5%, 후행스팬 비우호적"
         }
@@ -445,11 +447,12 @@
       "regime": "추세장",
       "adjustments": [
         "장세: ADX 30.6 (추세장)",
-        "RSI·볼린저 x0.5, 이평선·MACD x1.5 적용",
-        "하락추세 방어: 종가<120일선, 매수 -15"
+        "RSI·볼린저 x0.5, 이평선·MACD x1.5 적용 (지표별 점수에 반영됨)",
+        "하락추세 방어: 종가가 120일선 대비 -15.4%, 매수 -10",
+        "매수 소계 22.5점 → 보정 후 12.5점"
       ],
-      "buy_score": 7.5,
-      "sell_score": 31.5,
+      "buy_score": 12.5,
+      "sell_score": 45.0,
       "verdict": "관망",
       "emoji": "🟡",
       "gate_applied": false,
