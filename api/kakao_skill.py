@@ -34,6 +34,10 @@ LATEST_RSI_URL = os.environ.get(
     "LATEST_RSI_URL",
     "https://raw.githubusercontent.com/junheun1227-web/rsi-alert/main/latest_rsi.json",
 )
+KR_STOCKS_URL = os.environ.get(
+    "KR_STOCKS_URL",
+    "https://raw.githubusercontent.com/junheun1227-web/rsi-alert/main/kr_stocks.json",
+)
 
 # 매그니피센트7 종목명/티커 별칭 매칭 (캐시 경로, 빠름)
 ALIASES = {
@@ -101,6 +105,52 @@ def find_kr_ticker(query: str):
         for kw in keywords:
             if kw in text:
                 return ticker, name
+    return None, None
+
+
+def fetch_kr_stocks() -> dict:
+    """GitHub Actions가 KRX(코스피+코스닥) 전체 상장사 명단을 받아 저장해둔 kr_stocks.json 캐시.
+    회사명(정확히 일치) -> 티커코드(.KS/.KQ) 매핑, 약 2,000~2,600개 종목을 포함한다."""
+    req = urllib.request.Request(
+        KR_STOCKS_URL + f"?_={os.urandom(4).hex()}",
+        headers={"Cache-Control": "no-cache"},
+    )
+    with urllib.request.urlopen(req, timeout=5) as resp:
+        return json.loads(resp.read().decode("utf-8"))
+
+
+def find_kr_ticker_full(query: str):
+    """KRX 전체 상장사 명단에서 회사명으로 검색 (정확 일치 우선, 안 되면 부분 일치)."""
+    try:
+        data = fetch_kr_stocks()
+    except Exception:
+        return None, None
+
+    stocks = data.get("stocks", {})
+    q = query.strip()
+    if not q:
+        return None, None
+
+    # 1) 정확히 일치
+    if q in stocks:
+        return stocks[q], q
+
+    # 2) 공백 제거 후 정확히 일치 (예: "국도 화학" -> "국도화학")
+    q_nospace = q.replace(" ", "")
+    for name, ticker in stocks.items():
+        if name.replace(" ", "") == q_nospace:
+            return ticker, name
+
+    # 3) 부분 일치 (질문에 회사명이 포함되거나, 회사명에 질문이 포함되는 경우)
+    candidates = [
+        (name, ticker) for name, ticker in stocks.items()
+        if name in q or (len(q_nospace) >= 2 and q_nospace in name.replace(" ", ""))
+    ]
+    if candidates:
+        # 가장 이름이 긴(더 구체적인) 매칭을 우선
+        name, ticker = max(candidates, key=lambda x: len(x[0]))
+        return ticker, name
+
     return None, None
 
 
@@ -220,12 +270,15 @@ def handle_utterance(utterance: str) -> str:
     if not query:
         return "어떤 종목인지 못 찾았어요. 예) 'AAPL 어때', '삼성전자 매수 매도', '005930'"
 
-    # 2-1) 국내 대형주 직접 매핑 (야후 검색 API를 거치지 않아 더 빠르고 안정적)
+    # 2-1) 국내 대형주 직접 매핑 (네트워크 호출 없이 즉시 매칭, 최다 조회 종목 위주)
     resolved_ticker, resolved_name = find_kr_ticker(query)
     # 2-2) 6자리 숫자 종목코드: 코스피/코스닥 직접 판별
     if not resolved_ticker:
         resolved_ticker, resolved_name = resolve_kr_code(query)
-    # 2-3) 그 외: 야후 파이낸스 검색 API로 종목명 -> 티커 해석 (미국 등 그 외 종목)
+    # 2-3) KRX 전체 상장사 명단(코스피+코스닥 약 2,000개 이상)에서 회사명 검색
+    if not resolved_ticker:
+        resolved_ticker, resolved_name = find_kr_ticker_full(query)
+    # 2-4) 그 외: 야후 파이낸스 검색 API로 종목명 -> 티커 해석 (미국 등 그 외 종목)
     if not resolved_ticker:
         resolved_ticker, resolved_name = resolve_ticker(query)
 
