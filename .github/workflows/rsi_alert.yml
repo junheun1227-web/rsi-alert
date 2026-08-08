@@ -1,0 +1,39 @@
+name: RSI Alert (Magnificent 7)
+
+on:
+  schedule:
+    # 15분마다 실행 (UTC 기준). 필요시 간격 조정 가능.
+    - cron: "*/15 * * * *"
+  workflow_dispatch: {}   # Actions 탭에서 수동 실행 버튼도 사용 가능
+
+permissions:
+  contents: write   # 알림 중복 방지용 state 파일을 저장소에 커밋하기 위해 필요
+
+jobs:
+  check-rsi:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run RSI check
+        env:
+          KAKAOWORK_APP_KEY: ${{ secrets.KAKAOWORK_APP_KEY }}
+          KAKAOWORK_EMAIL: ${{ secrets.KAKAOWORK_EMAIL }}
+        run: python rsi_alert.py
+
+      - name: Persist alert state
+        run: |
+          git config user.name "rsi-alert-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add rsi_alert_state.json
+          if ! git diff --cached --quiet; then
+            git commit -m "chore: update rsi alert state"
+            git push
+          fi
