@@ -1,40 +1,348 @@
 {
-  "updated_at": "2026-08-08 04:46:39",
+  "updated_at": "2026-08-08 05:28:00",
   "tickers": {
     "AAPL": {
       "name": "Apple",
-      "rsi": 47.55,
-      "price": 313.33
+      "price": 313.33,
+      "rsi": 47.59,
+      "buy_score": 15,
+      "sell_score": 9,
+      "verdict": "관망",
+      "label": "관망",
+      "emoji": "🟡",
+      "buy_blocked": false,
+      "items": [
+        {
+          "name": "RSI",
+          "detail": "47.6",
+          "buy": 0,
+          "sell": 0
+        },
+        {
+          "name": "볼린저밴드",
+          "detail": "중심선 아래",
+          "buy": 3,
+          "sell": 0
+        },
+        {
+          "name": "이동평균",
+          "detail": "20일선 323.4(횡보) / 60일선 308.6(상승) / 120일선 286.4(상승)",
+          "buy": 3,
+          "sell": 3
+        },
+        {
+          "name": "MACD",
+          "detail": "MACD 0.88 / Signal 4.06",
+          "buy": 0,
+          "sell": 6
+        },
+        {
+          "name": "거래량",
+          "detail": "평균 대비 61%",
+          "buy": 1,
+          "sell": 0
+        },
+        {
+          "name": "일목균형표",
+          "detail": "구름 위 (전환선 322.3 / 기준선 319.1)",
+          "buy": 8,
+          "sell": 0
+        }
+      ]
     },
     "MSFT": {
       "name": "Microsoft",
-      "rsi": 78.19,
-      "price": 499.99
+      "price": 499.99,
+      "rsi": 78.15,
+      "buy_score": 15,
+      "sell_score": 20,
+      "verdict": "관망",
+      "label": "관망",
+      "emoji": "🟡",
+      "buy_blocked": false,
+      "items": [
+        {
+          "name": "RSI",
+          "detail": "78.1",
+          "buy": 0,
+          "sell": 10
+        },
+        {
+          "name": "볼린저밴드",
+          "detail": "상단 근접",
+          "buy": 0,
+          "sell": 6
+        },
+        {
+          "name": "이동평균",
+          "detail": "20일선 423.8(상승) / 60일선 408.5(상승) / 120일선 402.9(상승)",
+          "buy": 0,
+          "sell": 0
+        },
+        {
+          "name": "MACD",
+          "detail": "MACD 27.58 / Signal 16.28",
+          "buy": 6,
+          "sell": 0
+        },
+        {
+          "name": "거래량",
+          "detail": "평균 대비 73%",
+          "buy": 1,
+          "sell": 0
+        },
+        {
+          "name": "일목균형표",
+          "detail": "구름 위 (전환선 447.0 / 기준선 439.3)",
+          "buy": 8,
+          "sell": 4
+        }
+      ]
     },
     "GOOGL": {
       "name": "Alphabet",
-      "rsi": 50.44,
-      "price": 354.3
+      "price": 354.3,
+      "rsi": 50.75,
+      "buy_score": 15,
+      "sell_score": 21,
+      "verdict": "관망",
+      "label": "관망",
+      "emoji": "🟡",
+      "buy_blocked": false,
+      "items": [
+        {
+          "name": "RSI",
+          "detail": "50.7",
+          "buy": 0,
+          "sell": 0
+        },
+        {
+          "name": "볼린저밴드",
+          "detail": "중심선 위",
+          "buy": 0,
+          "sell": 3
+        },
+        {
+          "name": "이동평균",
+          "detail": "20일선 348.8(횡보) / 60일선 362.4(하락) / 120일선 343.0(상승)",
+          "buy": 3,
+          "sell": 3
+        },
+        {
+          "name": "MACD",
+          "detail": "MACD 0.95 / Signal -2.04",
+          "buy": 6,
+          "sell": 4
+        },
+        {
+          "name": "거래량",
+          "detail": "평균 대비 61%",
+          "buy": 0,
+          "sell": 1
+        },
+        {
+          "name": "일목균형표",
+          "detail": "구름 아래 (전환선 354.5 / 기준선 349.7)",
+          "buy": 6,
+          "sell": 10
+        }
+      ]
     },
     "AMZN": {
       "name": "Amazon",
-      "rsi": 64.01,
-      "price": 274.48
+      "price": 274.48,
+      "rsi": 64.21,
+      "buy_score": 15,
+      "sell_score": 16,
+      "verdict": "관망",
+      "label": "관망",
+      "emoji": "🟡",
+      "buy_blocked": false,
+      "items": [
+        {
+          "name": "RSI",
+          "detail": "64.2",
+          "buy": 0,
+          "sell": 4
+        },
+        {
+          "name": "볼린저밴드",
+          "detail": "상단 근접",
+          "buy": 0,
+          "sell": 6
+        },
+        {
+          "name": "이동평균",
+          "detail": "20일선 251.6(상승) / 60일선 250.6(횡보) / 120일선 239.9(상승)",
+          "buy": 0,
+          "sell": 2
+        },
+        {
+          "name": "MACD",
+          "detail": "MACD 7.58 / Signal 3.49",
+          "buy": 6,
+          "sell": 0
+        },
+        {
+          "name": "거래량",
+          "detail": "평균 대비 68%",
+          "buy": 1,
+          "sell": 0
+        },
+        {
+          "name": "일목균형표",
+          "detail": "구름 위 (전환선 256.7 / 기준선 256.7)",
+          "buy": 8,
+          "sell": 4
+        }
+      ]
     },
     "META": {
       "name": "Meta",
-      "rsi": 47.77,
-      "price": 592.1
+      "price": 592.1,
+      "rsi": 47.68,
+      "buy_score": 10,
+      "sell_score": 12,
+      "verdict": "관망",
+      "label": "관망",
+      "emoji": "🟡",
+      "buy_blocked": false,
+      "items": [
+        {
+          "name": "RSI",
+          "detail": "47.7",
+          "buy": 0,
+          "sell": 0
+        },
+        {
+          "name": "볼린저밴드",
+          "detail": "중심선 아래",
+          "buy": 3,
+          "sell": 0
+        },
+        {
+          "name": "이동평균",
+          "detail": "20일선 612.3(하락) / 60일선 601.8(횡보) / 120일선 614.7(횡보)",
+          "buy": 2,
+          "sell": 0
+        },
+        {
+          "name": "MACD",
+          "detail": "MACD -7.51 / Signal -5.02",
+          "buy": 4,
+          "sell": 6
+        },
+        {
+          "name": "거래량",
+          "detail": "평균 대비 60%",
+          "buy": 1,
+          "sell": 0
+        },
+        {
+          "name": "일목균형표",
+          "detail": "구름 안 (전환선 562.7 / 기준선 605.3)",
+          "buy": 0,
+          "sell": 6
+        }
+      ]
     },
     "NVDA": {
       "name": "NVIDIA",
-      "rsi": 64.32,
-      "price": 223.96
+      "price": 223.96,
+      "rsi": 64.42,
+      "buy_score": 17,
+      "sell_score": 16,
+      "verdict": "관망",
+      "label": "관망",
+      "emoji": "🟡",
+      "buy_blocked": false,
+      "items": [
+        {
+          "name": "RSI",
+          "detail": "64.4",
+          "buy": 0,
+          "sell": 4
+        },
+        {
+          "name": "볼린저밴드",
+          "detail": "상단 근접",
+          "buy": 0,
+          "sell": 6
+        },
+        {
+          "name": "이동평균",
+          "detail": "20일선 206.8(상승) / 60일선 208.6(횡보) / 120일선 199.1(상승)",
+          "buy": 0,
+          "sell": 2
+        },
+        {
+          "name": "MACD",
+          "detail": "MACD 3.06 / Signal 0.56",
+          "buy": 6,
+          "sell": 0
+        },
+        {
+          "name": "거래량",
+          "detail": "평균 대비 82%",
+          "buy": 3,
+          "sell": 0
+        },
+        {
+          "name": "일목균형표",
+          "detail": "구름 위 (전환선 207.4 / 기준선 207.4)",
+          "buy": 8,
+          "sell": 4
+        }
+      ]
     },
     "TSLA": {
       "name": "Tesla",
-      "rsi": 41.26,
-      "price": 328.58
+      "price": 328.58,
+      "rsi": 41.41,
+      "buy_score": 16,
+      "sell_score": 8,
+      "verdict": "관망",
+      "label": "관망",
+      "emoji": "🟡",
+      "buy_blocked": false,
+      "items": [
+        {
+          "name": "RSI",
+          "detail": "41.4",
+          "buy": 0,
+          "sell": 0
+        },
+        {
+          "name": "볼린저밴드",
+          "detail": "중심선 아래",
+          "buy": 3,
+          "sell": 0
+        },
+        {
+          "name": "이동평균",
+          "detail": "20일선 343.3(하락) / 60일선 388.0(하락) / 120일선 388.3(하락)",
+          "buy": 0,
+          "sell": 0
+        },
+        {
+          "name": "MACD",
+          "detail": "MACD -19.76 / Signal -20.78",
+          "buy": 10,
+          "sell": 0
+        },
+        {
+          "name": "거래량",
+          "detail": "평균 대비 101%",
+          "buy": 3,
+          "sell": 0
+        },
+        {
+          "name": "일목균형표",
+          "detail": "구름 아래 (전환선 315.6 / 기준선 364.9)",
+          "buy": 0,
+          "sell": 8
+        }
+      ]
     }
   }
 }
