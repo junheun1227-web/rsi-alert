@@ -5,6 +5,10 @@ RSI(14)/볼린저밴드(20,2시그마)/이동평균(5,20,60)/MACD(12,26,9)/거�
 6개 지표로 매수 점수·매도 점수를 각각 100점 만점으로 산출하고, ADX(14) 장세 필터·하락추세
 방어·RSI 게이트 보정을 거쳐 최종 판정을 내린다.
 
+지표별 표시 점수는 장세(ADX) 보정이 반영된 값이며, 총점은 그 지표별 점수를 그대로 더한
+값이다(사용자가 직접 검산 가능). 판정 임계값은 매수/매도 55점 이상, 적극매수/전량매도
+70점 이상이며, RSI 게이트는 과매수 구간(RSI 70 이상)에서만 매수를 차단한다.
+
 데이터는 야후 파이낸스 실제 시세로 계산한다 (추정치 없음). 각 지표는 계산에 필요한 최소
 거래일 수가 확보되지 않으면 "데이터 없음"으로 표시하고 0점 처리하며, 6개 중 3개 이상이
 데이터 없음이면 점수를 매기지 않고 데이터 부족을 알린다.
@@ -363,48 +367,65 @@ def analyze_ticker(ticker: str, name: str) -> dict:
     else:
         regime, mean_rev_mult, trend_mult = "중립", 1.0, 1.0
 
-    rsi_buy, rsi_sell = rsi_r["buy"] * mean_rev_mult, rsi_r["sell"] * mean_rev_mult
-    bb_buy, bb_sell = bb_r["buy"] * mean_rev_mult, bb_r["sell"] * mean_rev_mult
-    ma_buy, ma_sell = ma_r["buy"] * trend_mult, ma_r["sell"] * trend_mult
-    macd_buy, macd_sell = macd_r["buy"] * trend_mult, macd_r["sell"] * trend_mult
-    vol_buy, vol_sell = vol_r["buy"], vol_r["sell"]
-    ichi_buy, ichi_sell = ichi_r["buy"], ichi_r["sell"]
+    # 표시되는 지표별 점수와 실제 합산에 쓰이는 점수가 어긋나지 않도록, 장세 보정을 결과
+    # dict 자체에 반영해 되돌려준다 (사용자가 지표별 점수를 더해봤을 때 총점과 일치해야 함).
+    mult_map = {"RSI(14)": mean_rev_mult, "볼린저밴드 %B": mean_rev_mult,
+                "이동평균선": trend_mult, "MACD": trend_mult,
+                "거래량": 1.0, "일목균형표": 1.0}
+    for label, r in results.items():
+        m = mult_map[label]
+        r["buy"] = round(r["buy"] * m, 1)
+        r["sell"] = round(r["sell"] * m, 1)
 
-    buy_total = rsi_buy + bb_buy + ma_buy + macd_buy + vol_buy + ichi_buy
-    sell_total = rsi_sell + bb_sell + ma_sell + macd_sell + vol_sell + ichi_sell
+    buy_subtotal = sum(r["buy"] for r in results.values())
+    sell_subtotal = sum(r["sell"] for r in results.values())
 
     adjustments = [f"장세: ADX {adx_value:.1f} ({regime})" if adx_value is not None else "장세: ADX 계산 불가 (중립 적용)"]
     if regime != "중립":
-        adjustments.append(f"RSI·볼린저 x{mean_rev_mult}, 이평선·MACD x{trend_mult} 적용")
+        adjustments.append(f"RSI·볼린저 x{mean_rev_mult}, 이평선·MACD x{trend_mult} 적용 (지표별 점수에 반영됨)")
 
-    # --- 하락추세 방어: 종가 < 120일선이면 매수 -15 ---
+    buy_total = buy_subtotal
+    sell_total = sell_subtotal
+
+    # --- 하락추세 방어: 종가가 120일선보다 3% 이상 낮으면 매수 -10
+    #     (소폭 하회는 노이즈로 보고 무시, 뚜렷한 하락추세에서만 페널티) ---
     ma120 = close.rolling(120).mean()
     ma120_0 = ma120.iloc[-1] if len(close) >= 120 else None
-    if ma120_0 is not None and not pd.isna(ma120_0) and price < ma120_0:
-        buy_total -= 15
-        adjustments.append("하락추세 방어: 종가<120일선, 매수 -15")
+    below_120_pct = None
+    if ma120_0 is not None and not pd.isna(ma120_0) and ma120_0 > 0:
+        below_120_pct = (price - ma120_0) / ma120_0 * 100
+        if below_120_pct <= -3:
+            buy_total -= 10
+            adjustments.append(f"하락추세 방어: 종가가 120일선 대비 {below_120_pct:.1f}%, 매수 -10")
+
+    if buy_total != buy_subtotal:
+        adjustments.append(f"매수 소계 {buy_subtotal:.1f}점 → 보정 후 {max(0, buy_total):.1f}점")
+
     buy_total = max(0, buy_total)
     sell_total = max(0, sell_total)
 
-    # --- 판정 ---
-    if buy_total >= 75:
+    # --- 판정 (실사용 가능하도록 임계값을 완화: 55+/70+ 기준) ---
+    if buy_total >= 70:
         verdict = "적극 매수"
-    elif buy_total >= 60:
+    elif buy_total >= 55:
         verdict = "매수"
-    elif sell_total >= 75:
+    elif sell_total >= 70:
         verdict = "전량 매도"
-    elif sell_total >= 60:
+    elif sell_total >= 55:
         verdict = "분할 매도"
     else:
         verdict = "관망"
 
-    # --- RSI 게이트: RSI>=45면 매수 판정 금지 ---
+    # --- RSI 게이트: RSI>=70(과매수)이면 매수 판정 금지.
+    #     기존엔 45 이상이면 무조건 막아 정상 상승 추세(RSI 50~65대)에서도 매수가 거의
+    #     안 나오는 문제가 있었음. RSI 스코어링에서도 70을 과매수 경계로 쓰고 있어
+    #     일관성 있게 70으로 맞춤 (고점 추격 매수만 막고, 정상 상승은 허용) ---
     rsi_value = rsi_r.get("raw_rsi")
     gate_applied = False
-    if rsi_value is not None and rsi_value >= 45 and verdict in ("적극 매수", "매수"):
+    if rsi_value is not None and rsi_value >= 70 and verdict in ("적극 매수", "매수"):
         verdict = "관망"
         gate_applied = True
-        adjustments.append(f"RSI 게이트: RSI {rsi_value:.1f} >= 45, 매수 판정 무효화 -> 관망")
+        adjustments.append(f"RSI 게이트: RSI {rsi_value:.1f} >= 70(과매수), 매수 판정 무효화 -> 관망")
 
     emoji = {"적극 매수": "🟢", "매수": "🟢", "전량 매도": "🔴", "분할 매도": "🔴", "관망": "🟡"}[verdict]
 
