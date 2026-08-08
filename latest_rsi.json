@@ -1,0 +1,40 @@
+{
+  "updated_at": "2026-08-08 04:40:27",
+  "tickers": {
+    "AAPL": {
+      "name": "Apple",
+      "rsi": 47.55,
+      "price": 313.33
+    },
+    "MSFT": {
+      "name": "Microsoft",
+      "rsi": 78.19,
+      "price": 499.99
+    },
+    "GOOGL": {
+      "name": "Alphabet",
+      "rsi": 50.44,
+      "price": 354.3
+    },
+    "AMZN": {
+      "name": "Amazon",
+      "rsi": 64.01,
+      "price": 274.48
+    },
+    "META": {
+      "name": "Meta",
+      "rsi": 47.77,
+      "price": 592.1
+    },
+    "NVDA": {
+      "name": "NVIDIA",
+      "rsi": 64.32,
+      "price": 223.96
+    },
+    "TSLA": {
+      "name": "Tesla",
+      "rsi": 41.26,
+      "price": 328.58
+    }
+  }
+}
