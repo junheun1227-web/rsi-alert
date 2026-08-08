@@ -11,13 +11,20 @@
   3) messages.send        : conversation_id로 실제 메시지 전송
 conversation_id는 최초 1회만 조회하고 state 파일에 캐시해 재사용합니다.
 
+개인 카카오톡("나에게 보내기")은 Kakao Developers 앱의 REST API 키 + OAuth refresh_token을 사용합니다.
+  1) refresh_token으로 access_token을 매번 새로 발급 (access_token은 몇 시간 후 만료되므로)
+  2) access_token으로 /v2/api/talk/memo/default/send 호출해 "나와의 채팅"으로 메시지 전송
+refresh_token 발급은 최초 1회 OAuth 로그인 동의가 필요하며 kakao_oauth_setup.yml로 진행합니다.
+
 필요한 환경변수:
-  KAKAOWORK_APP_KEY   : 카카오워크 관리자 > 봇 관리에서 발급받은 App Key
-  KAKAOWORK_EMAIL     : 알림을 받을 카카오워크 계정 이메일
+  KAKAOWORK_APP_KEY    : 카카오워크 관리자 > 봇 관리에서 발급받은 App Key
+  KAKAOWORK_EMAIL      : 알림을 받을 카카오워크 계정 이메일
+  KAKAO_REST_API_KEY   : Kakao Developers 앱의 REST API 키
+  KAKAO_REFRESH_TOKEN  : OAuth 동의 후 발급받은 refresh_token (kakao_oauth_setup.yml 참고)
 
 사용법:
-  python rsi_alert.py            # 체크 후 조건 충족 시 카카오워크로 알림 전송
-  python rsi_alert.py --test     # 카카오워크 연결 테스트 메시지만 전송
+  python rsi_alert.py            # 체크 후 조건 충족 시 카카오워크 + 개인 카톡으로 알림 전송
+  python rsi_alert.py --test     # 두 채널 모두 연결 테스트 메시지만 전송
   python rsi_alert.py --dry-run  # 알림 전송 없이 현재 RSI만 출력
 """
 
@@ -49,10 +56,14 @@ THRESHOLDS = [30, 25]  # 낮은 값이 더 심각하므로 둘 다 체크 (30 �
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 STATE_FILE = os.path.join(SCRIPT_DIR, "rsi_alert_state.json")
+LATEST_RSI_FILE = os.path.join(SCRIPT_DIR, "latest_rsi.json")
 
 KAKAOWORK_APP_KEY = os.environ.get("KAKAOWORK_APP_KEY", "")
 KAKAOWORK_EMAIL = os.environ.get("KAKAOWORK_EMAIL", "")
 KAKAOWORK_API_BASE = "https://api.kakaowork.com/v1"
+
+KAKAO_REST_API_KEY = os.environ.get("KAKAO_REST_API_KEY", "")
+KAKAO_REFRESH_TOKEN = os.environ.get("KAKAO_REFRESH_TOKEN", "")
 
 
 # ---------------------------------------------------------------------------
@@ -125,6 +136,20 @@ def already_alerted(state: dict, ticker: str, threshold: int, today: str) -> boo
 def mark_alerted(state: dict, ticker: str, threshold: int, today: str) -> None:
     key = f"{ticker}_{threshold}"
     state[key] = today
+
+
+def save_latest_rsi(results: list, ts: str) -> None:
+    """카카오 챗봇 스킬 서버가 읽어갈 수 있도록 종목별 최신 RSI/가격을 캐시 파일로 저장.
+    챗봇 쪽에서 매번 야후 파이낸스를 호출하지 않고 이 캐시만 읽으면 되므로 응답이 빠르고 안정적임."""
+    payload = {
+        "updated_at": ts,
+        "tickers": {
+            ticker: {"name": name, "rsi": round(rsi, 2), "price": round(price, 2)}
+            for ticker, name, rsi, price in results
+        },
+    }
+    with open(LATEST_RSI_FILE, "w", encoding="utf-8") as f:
+        json.dump(payload, f, indent=2, ensure_ascii=False)
 
 
 # ---------------------------------------------------------------------------
@@ -203,6 +228,62 @@ def send_kakaowork_message(text: str, state: dict) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# 개인 카카오톡("나에게 보내기") 알림 전송
+# ---------------------------------------------------------------------------
+
+def _kakao_get_access_token() -> str | None:
+    if not KAKAO_REST_API_KEY or not KAKAO_REFRESH_TOKEN:
+        return None
+
+    resp = requests.post(
+        "https://kauth.kakao.com/oauth/token",
+        data={
+            "grant_type": "refresh_token",
+            "client_id": KAKAO_REST_API_KEY,
+            "refresh_token": KAKAO_REFRESH_TOKEN,
+        },
+        timeout=10,
+    )
+    data = resp.json()
+    if "access_token" not in data:
+        print(f"[에러] 카카오 access_token 갱신 실패: {data}")
+        return None
+    return data["access_token"]
+
+
+def send_kakaotalk_memo(text: str) -> bool:
+    """Kakao Developers 앱의 '나에게 보내기'(talk_message scope)로 본인 카카오톡에 메시지 전송."""
+    if not KAKAO_REST_API_KEY or not KAKAO_REFRESH_TOKEN:
+        print("[경고] KAKAO_REST_API_KEY / KAKAO_REFRESH_TOKEN이 설정되지 않아 개인 카톡 전송을 건너뜁니다.")
+        return False
+
+    access_token = _kakao_get_access_token()
+    if not access_token:
+        return False
+
+    template_object = {
+        "object_type": "text",
+        "text": text,
+        "link": {
+            "web_url": "https://finance.yahoo.com",
+            "mobile_web_url": "https://finance.yahoo.com",
+        },
+    }
+
+    resp = requests.post(
+        "https://kapi.kakao.com/v2/api/talk/memo/default/send",
+        headers={"Authorization": f"Bearer {access_token}"},
+        data={"template_object": json.dumps(template_object)},
+        timeout=10,
+    )
+    data = resp.json()
+    ok = data.get("result_code") == 0
+    if not ok:
+        print(f"[에러] 개인 카톡 전송 실패: {data}")
+    return ok
+
+
+# ---------------------------------------------------------------------------
 # 메인 로직
 # ---------------------------------------------------------------------------
 
@@ -235,6 +316,8 @@ def run(dry_run: bool = False) -> None:
         flag = " <-- 임계값 이하!" if rsi <= max(THRESHOLDS) else ""
         print(f"  {ticker:6s} ({name:10s}) RSI={rsi:6.2f}  가격=${price:,.2f}{flag}")
 
+    save_latest_rsi(results, ts)  # 챗봇 질의응답용 캐시 갱신 (항상 저장)
+
     if not triggered:
         print("알림 조건에 해당하는 종목 없음.")
         save_state(state)  # conversation_id 캐시 등 갱신분 저장
@@ -251,8 +334,9 @@ def run(dry_run: bool = False) -> None:
             f"현재가: ${price:,.2f}\n"
             f"시각: {ts}"
         )
-        sent = send_kakaowork_message(msg, state)
-        print(f"  -> {ticker} 알림 전송 {'성공' if sent else '실패/미설정'}")
+        kw_sent = send_kakaowork_message(msg, state)
+        kt_sent = send_kakaotalk_memo(msg)
+        print(f"  -> {ticker} 카카오워크 {'성공' if kw_sent else '실패/미설정'} / 개인 카톡 {'성공' if kt_sent else '실패/미설정'}")
 
     save_state(state)
 
@@ -260,8 +344,9 @@ def run(dry_run: bool = False) -> None:
 if __name__ == "__main__":
     if "--test" in sys.argv:
         _state = load_state()
-        ok = send_kakaowork_message("✅ 카카오워크 RSI 알림 봇 연결 테스트입니다.", _state)
+        kw_ok = send_kakaowork_message("✅ 카카오워크 RSI 알림 봇 연결 테스트입니다.", _state)
+        kt_ok = send_kakaotalk_memo("✅ 개인 카톡(나에게 보내기) RSI 알림 연결 테스트입니다.")
         save_state(_state)
-        print("전송 성공" if ok else "전송 실패 - APP_KEY / EMAIL을 확인하세요.")
+        print(f"카카오워크: {'성공' if kw_ok else '실패'} / 개인 카톡: {'성공' if kt_ok else '실패'}")
     else:
         run(dry_run="--dry-run" in sys.argv)
