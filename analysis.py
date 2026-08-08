@@ -182,6 +182,19 @@ def score_bollinger(close: pd.Series) -> dict:
     return {"available": True, "buy": buy, "sell": sell, "value": f"{percent_b:.2f}", "detail": detail}
 
 
+def _recent_cross(fast: pd.Series, slow: pd.Series, lookback: int = 5):
+    """최근 lookback영업일 이내에 골든/데드 크로스가 있었는지 (당일 1회성 이벤트가 아니라
+    '최근 크로스 이후 추세 지속 여부'까지 실사용 가능하게 보기 위한 완화된 판정)."""
+    golden, dead = False, False
+    n = len(fast)
+    for i in range(max(1, n - lookback), n):
+        if fast.iloc[i - 1] <= slow.iloc[i - 1] and fast.iloc[i] > slow.iloc[i]:
+            golden = True
+        if fast.iloc[i - 1] >= slow.iloc[i - 1] and fast.iloc[i] < slow.iloc[i]:
+            dead = True
+    return golden, dead
+
+
 def score_ma(close: pd.Series) -> dict:
     if len(close) < 61:
         return {"available": False, "buy": 0, "sell": 0, "value": "데이터 없음", "detail": "데이터 없음"}
@@ -194,20 +207,21 @@ def score_ma(close: pd.Series) -> dict:
         return {"available": False, "buy": 0, "sell": 0, "value": "데이터 없음", "detail": "데이터 없음"}
 
     c0 = close.iloc[-1]
-    ma5_0, ma5_1 = ma5.iloc[-1], ma5.iloc[-2]
-    ma20_0, ma20_1 = ma20.iloc[-1], ma20.iloc[-2]
+    ma5_0 = ma5.iloc[-1]
+    ma20_0 = ma20.iloc[-1]
     ma60_0 = ma60.iloc[-1]
 
-    golden_cross = ma5_1 <= ma20_1 and ma5_0 > ma20_0
-    dead_cross = ma5_1 >= ma20_1 and ma5_0 < ma20_0
-    aligned_up = ma5_0 > ma20_0 > ma60_0     # 정배열
+    aligned_up = ma5_0 > ma20_0 > ma60_0     # 정배열 (현재 상태 - 매일 유지되는 구조적 신호)
     aligned_down = ma5_0 < ma20_0 < ma60_0   # 역배열
+    recent_golden, recent_dead = _recent_cross(ma5, ma20, lookback=5)
 
-    buy = (10 if golden_cross else 0) + (5 if c0 > ma20_0 else 0) + (5 if aligned_up else 0)
-    sell = (10 if dead_cross else 0) + (5 if c0 < ma20_0 else 0) + (5 if aligned_down else 0)
+    # 정배열/역배열(구조) + 종가 위치 + 최근 크로스, 3가지를 합산 (특정 하루 이벤트에만 의존하지 않도록
+    # '현재 상태' 위주로 채점해 실제 매매 판단에 쓸 수 있게 함)
+    buy = (10 if aligned_up else 0) + (5 if c0 > ma20_0 else 0) + (5 if recent_golden else 0)
+    sell = (10 if aligned_down else 0) + (5 if c0 < ma20_0 else 0) + (5 if recent_dead else 0)
 
     state = "정배열" if aligned_up else ("역배열" if aligned_down else "혼조")
-    cross_note = "골든크로스" if golden_cross else ("데드크로스" if dead_cross else "")
+    cross_note = "최근 골든크로스" if recent_golden else ("최근 데드크로스" if recent_dead else "")
     disparity = (c0 - ma20_0) / ma20_0 * 100 if ma20_0 else 0
     detail = f"5/20/60일선 {ma5_0:.1f}/{ma20_0:.1f}/{ma60_0:.1f} ({state}{', ' + cross_note if cross_note else ''}, 20일선 이격도 {disparity:+.1f}%)"
     return {"available": True, "buy": buy, "sell": sell, "value": state, "detail": detail}
@@ -223,21 +237,18 @@ def score_macd(close: pd.Series) -> dict:
     signal = macd.ewm(span=9, adjust=False).mean()
     hist = macd - signal
 
-    m0, m1 = macd.iloc[-1], macd.iloc[-2]
-    s0, s1 = signal.iloc[-1], signal.iloc[-2]
-    h0, h1 = hist.iloc[-1], hist.iloc[-2]
+    m0 = macd.iloc[-1]
+    s0 = signal.iloc[-1]
+    recent_cross_up, recent_cross_down = _recent_cross(macd, signal, lookback=5)
 
-    cross_up = m1 <= s1 and m0 > s0
-    cross_down = m1 >= s1 and m0 < s0
-    hist_flip_up = h1 < 0 and h0 > 0
-    hist_flip_down = h1 > 0 and h0 < 0
-
-    buy = (10 if cross_up else 0) + (5 if hist_flip_up else 0) + (5 if m0 > 0 else 0)
-    sell = (10 if cross_down else 0) + (5 if hist_flip_down else 0) + (5 if m0 < 0 else 0)
+    # MACD가 시그널 위/아래 있는 '현재 상태' + 0선 위치 + 최근 교차, 3가지를 합산
+    buy = (10 if m0 > s0 else 0) + (5 if m0 > 0 else 0) + (5 if recent_cross_up else 0)
+    sell = (10 if m0 < s0 else 0) + (5 if m0 < 0 else 0) + (5 if recent_cross_down else 0)
 
     zero_pos = "0선 위" if m0 > 0 else "0선 아래"
-    cross_note = "시그널 상향돌파" if cross_up else ("시그널 하향돌파" if cross_down else "교차 없음")
-    detail = f"MACD {m0:.2f} / Signal {s0:.2f} ({zero_pos}, {cross_note})"
+    state_note = "MACD>시그널" if m0 > s0 else "MACD<시그널"
+    cross_note = ", 최근 상향돌파" if recent_cross_up else (", 최근 하향돌파" if recent_cross_down else "")
+    detail = f"MACD {m0:.2f} / Signal {s0:.2f} ({zero_pos}, {state_note}{cross_note})"
     return {"available": True, "buy": buy, "sell": sell, "value": f"{m0:.2f}", "detail": detail}
 
 
@@ -282,25 +293,24 @@ def score_ichimoku(high: pd.Series, low: pd.Series, close: pd.Series) -> dict:
     span_a = ((conv + base) / 2).shift(26)
     span_b = ((high.rolling(52).max() + low.rolling(52).min()) / 2).shift(26)
 
-    c0, c1 = close.iloc[-1], close.iloc[-2]
+    c0 = close.iloc[-1]
     a0, b0 = span_a.iloc[-1], span_b.iloc[-1]
-    a1, b1 = span_a.iloc[-2], span_b.iloc[-2]
     if pd.isna(a0) or pd.isna(b0):
         return {"available": False, "buy": 0, "sell": 0, "value": "데이터 없음", "detail": "데이터 없음"}
 
     top0, bot0 = max(a0, b0), min(a0, b0)
-    top1, bot1 = max(a1, b1), min(a1, b1)
     conv0, base0 = conv.iloc[-1], base.iloc[-1]
 
-    cross_up = c1 < top1 and c0 >= top0
-    cross_down = c1 > bot1 and c0 <= bot0
+    # 구름 돌파 '당일'이 아니라 현재 구름 위/아래에 있는지 '상태'로 채점 (실사용 가능하도록)
+    above_cloud = c0 > top0
+    below_cloud = c0 < bot0
 
     chikou_prev = close.iloc[-27] if len(close) >= 27 else None
     chikou_buy = chikou_prev is not None and c0 > chikou_prev
     chikou_sell = chikou_prev is not None and c0 < chikou_prev
 
-    buy = (6 if cross_up else 0) + (5 if conv0 > base0 else 0) + (4 if chikou_buy else 0)
-    sell = (6 if cross_down else 0) + (5 if conv0 < base0 else 0) + (4 if chikou_sell else 0)
+    buy = (6 if above_cloud else 0) + (5 if conv0 > base0 else 0) + (4 if chikou_buy else 0)
+    sell = (6 if below_cloud else 0) + (5 if conv0 < base0 else 0) + (4 if chikou_sell else 0)
 
     position = "구름 위" if c0 > top0 else ("구름 아래" if c0 < bot0 else "구름 안")
     cloud_thickness = abs(a0 - b0) / c0 * 100 if c0 else 0
