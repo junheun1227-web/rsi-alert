@@ -32,10 +32,13 @@ def ticker_exists(ticker: str) -> bool:
 
 
 def fetch_ohlcv(ticker: str, period: str = "2y") -> pd.DataFrame:
-    """120일 이동평균, 일목균형표(52+26) 계산에 충분한 기간을 확보하기 위해 2년치 일봉을 가져온다."""
+    """120일 이동평균, 일목균형표(52+26) 계산에 충분한 기간을 확보하기 위해 2년치 일봉을 가져온다.
+    최근 상장(IPO)한 종목이라 데이터가 짧은 경우, RSI/볼린저밴드/거래량 정도는 계산 가능한
+    최소 길이(15일)만 확보되면 계속 진행한다 - 120일선/일목균형표 등은 각 채점 함수에서
+    데이터가 부족하면 개별적으로 "데이터 부족"으로 표시하고 0점 처리한다."""
     data = yf.Ticker(ticker).history(period=period, interval="1d")
-    if data.empty or len(data) < 130:
-        raise ValueError(f"{ticker}: 데이터 부족 (분석 데이터 부족)")
+    if data.empty or len(data) < RSI_PERIOD + 1:
+        raise ValueError(f"{ticker}: 상장 초기 등으로 분석 가능한 데이터가 부족합니다")
 
     # 장중 실시간가로 마지막 종가를 갱신
     try:
@@ -120,6 +123,9 @@ def score_rsi(close: pd.Series):
 
 def score_bollinger(close: pd.Series):
     """근접 기준: 상/하단 밴드로부터 밴드폭의 25% 이내를 '근접'으로 정의."""
+    if len(close) < 20:
+        return 0, 0, "데이터 부족 (상장 초기, 볼린저밴드 계산 불가)"
+
     mid = close.rolling(20).mean()
     std = close.rolling(20).std()
     upper = mid + 2 * std
@@ -164,6 +170,10 @@ def score_ma(close: pd.Series):
     ma20 = close.rolling(20).mean()
     ma60 = close.rolling(60).mean()
     ma120 = close.rolling(120).mean()
+
+    if pd.isna(ma120.iloc[-1]):
+        # 상장한 지 120거래일(약 6개월) 미만이면 120일선을 계산할 수 없음
+        return 0, 0, "데이터 부족 (상장 초기, 120일선 계산 불가)"
 
     c0, c1 = close.iloc[-1], close.iloc[-2]
     ma20_0, ma20_1 = ma20.iloc[-1], ma20.iloc[-2]
@@ -214,6 +224,9 @@ def score_ma(close: pd.Series):
 
 
 def score_macd(close: pd.Series):
+    if len(close) < 35:  # EMA26 + Signal(EMA9)가 안정적으로 계산되기 위한 최소 길이
+        return 0, 0, "데이터 부족 (상장 초기, MACD 계산 불가)", 0.0, 0.0
+
     ema12 = close.ewm(span=12, adjust=False).mean()
     ema26 = close.ewm(span=26, adjust=False).mean()
     macd = ema12 - ema26
@@ -253,6 +266,9 @@ def score_macd(close: pd.Series):
 
 
 def score_volume(close: pd.Series, volume: pd.Series):
+    if len(close) < 21:
+        return 0, 0, "데이터 부족 (상장 초기, 거래량 평균 계산 불가)"
+
     avg20 = volume.shift(1).rolling(20).mean()
     v0 = volume.iloc[-1]
     avg0 = avg20.iloc[-1]
@@ -279,6 +295,9 @@ def score_volume(close: pd.Series, volume: pd.Series):
 
 
 def score_ichimoku(high: pd.Series, low: pd.Series, close: pd.Series):
+    if len(close) < 78:  # 선행스팬B(52) + 26 선행 이동에 필요한 최소 길이
+        return 0, 0, "데이터 부족 (상장 초기, 일목균형표 계산 불가)", float("-inf")
+
     conv = (high.rolling(9).max() + low.rolling(9).min()) / 2
     base = (high.rolling(26).max() + low.rolling(26).min()) / 2
     span_a = ((conv + base) / 2).shift(26)
