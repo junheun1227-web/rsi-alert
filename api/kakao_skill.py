@@ -154,6 +154,18 @@ def find_kr_ticker_full(query: str):
     return None, None
 
 
+def resolve_us_ticker_direct(query: str):
+    """사용자가 QQQ, TQQQ, AAPL처럼 정확한 미국 티커(알파벳 1~5자, ETF 포함)를 입력한 경우
+    야후 검색 API를 거치지 않고 바로 존재 여부만 확인해 즉시 매칭한다.
+    (검색 API가 한글/일부 환경에서 불안정한 것과 무관하게 ETF·개별종목 티커를 안정적으로 잡기 위함)"""
+    q = query.strip().upper()
+    if not (1 <= len(q) <= 5 and q.isalpha()):
+        return None, None
+    if analysis.ticker_exists(q):
+        return q, q
+    return None, None
+
+
 def resolve_kr_code(query: str):
     """6자리 숫자 종목코드를 입력한 경우 코스피(.KS)/코스닥(.KQ) 여부를 직접 확인."""
     digits = query.strip()
@@ -197,7 +209,8 @@ def resolve_ticker(query: str):
             data = json.loads(resp.read().decode("utf-8"))
         for q in data.get("quotes", []):
             symbol = q.get("symbol")
-            if symbol and q.get("quoteType") in (None, "EQUITY"):
+            # ETF(QQQ, TQQQ 등)도 검색되도록 EQUITY 외에 ETF 타입도 허용
+            if symbol and q.get("quoteType") in (None, "EQUITY", "ETF"):
                 name = q.get("shortname") or q.get("longname") or symbol
                 return symbol, name
     except Exception:
@@ -232,22 +245,20 @@ def format_analysis(ticker: str, info: dict, updated_at: str) -> str:
             f"기준시각: {updated_at}"
         )
 
+    # 종합 요약의견을 메시지 맨 앞에 먼저 노출 (매수/매도 결론을 바로 확인할 수 있도록)
     lines = [
-        f"[{info['name']}({ticker})]  기준일 {info.get('ref_date', '')}  종가 {fmt_price(info['price'])}",
-        "",
-        "지표별 판정 근거",
+        f"[{info['name']}({ticker})]  {info['emoji']} 종합의견: {info['verdict']}",
+        f"매수 {info['buy_score']}/100   매도 {info['sell_score']}/100   기준일 {info.get('ref_date', '')}  종가 {fmt_price(info['price'])}",
     ]
-    for label, r in info["results"].items():
-        lines.append(f"- {label}: {r['detail']}  (매수 {r['buy']:.0f}점 / 매도 {r['sell']:.0f}점)")
-
-    lines += ["", "종합"]
     for adj in info.get("adjustments", []):
         lines.append(f"- {adj}")
-    lines.append(f"- 매수 총점: {info['buy_score']}/100   매도 총점: {info['sell_score']}/100")
-    lines.append(f"- 판정: {info['emoji']} {info['verdict']}")
     if info.get("conflicts"):
         for c in info["conflicts"]:
             lines.append(f"- 상충 신호: {c}")
+
+    lines += ["", "지표별 판정 근거"]
+    for label, r in info["results"].items():
+        lines.append(f"- {label}: {r['detail']}  (매수 {r['buy']:.0f}점 / 매도 {r['sell']:.0f}점)")
 
     lines += [
         "",
@@ -283,10 +294,13 @@ def handle_utterance(utterance: str) -> str:
     # 2-2) 6자리 숫자 종목코드: 코스피/코스닥 직접 판별
     if not resolved_ticker:
         resolved_ticker, resolved_name = resolve_kr_code(query)
-    # 2-3) KRX 전체 상장사 명단(코스피+코스닥 약 2,000개 이상)에서 회사명 검색
+    # 2-3) 알파벳 1~5자 정확한 미국 티커(개별종목·ETF 모두 포함, 예: QQQ/TQQQ/AAPL) 직접 확인
+    if not resolved_ticker:
+        resolved_ticker, resolved_name = resolve_us_ticker_direct(query)
+    # 2-4) KRX 전체 상장사 명단(코스피+코스닥 약 2,000개 이상)에서 회사명 검색
     if not resolved_ticker:
         resolved_ticker, resolved_name = find_kr_ticker_full(query)
-    # 2-4) 그 외: 야후 파이낸스 검색 API로 종목명 -> 티커 해석 (미국 등 그 외 종목)
+    # 2-5) 그 외: 야후 파이낸스 검색 API로 종목명 -> 티커 해석 (ETF 포함 미국 등 그 외 종목)
     if not resolved_ticker:
         resolved_ticker, resolved_name = resolve_ticker(query)
 
