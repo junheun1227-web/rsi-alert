@@ -213,38 +213,46 @@ def build_kakao_response(text: str) -> dict:
 
 
 def format_analysis(ticker: str, info: dict, updated_at: str) -> str:
-    """6개 지표 종합 매수/매도 분석을 사용자가 지정한 출력 형식으로 정리.
-    (카카오톡 simpleText는 마크다운을 렌더링하지 않으므로 **/### 기호 대신 일반 텍스트로 구성)"""
-    verdict = info["verdict"]  # "매수" / "매도" / "관망"
-    use_buy = verdict != "매도"  # 매도 판단일 때만 매도점수 기준 근거를 보여줌
+    """6개 지표(RSI/볼린저/이평선/MACD/거래량/일목균형표) 종합 매수·매도 분석을
+    사용자 지정 출력 형식(종목/기준일/지표별 근거표/종합판정)으로 정리.
+    카카오톡 simpleText는 마크다운 표·굵게를 렌더링하지 않으므로 일반 텍스트로 정렬한다."""
+    currency = "₩" if ticker.upper().endswith((".KS", ".KQ")) else "$"
+
+    def fmt_price(p):
+        return f"{currency}{p:,.0f}" if currency == "₩" else f"{currency}{p:,.2f}"
+
+    if info.get("insufficient_data"):
+        missing = ", ".join(info.get("missing", []))
+        return (
+            f"[{info['name']}({ticker})] 기준일 {info.get('ref_date', '알 수 없음')}\n"
+            f"데이터 없음: {missing} 등 3개 이상 지표를 계산할 만큼 거래 이력이 충분하지 않아 "
+            f"점수를 산출하지 않았습니다.\n"
+            f"(상장 초기 종목이거나 야후 파이낸스에 데이터가 부족한 종목일 수 있어요. "
+            f"다른 종목명/티커로 다시 시도해주세요.)\n"
+            f"기준시각: {updated_at}"
+        )
 
     lines = [
-        f"[{info['name']}({ticker})]",
-        f"현재 판단: {info['emoji']} {info['label']}",
-        f"매수점수: {info['buy_score']}/60   매도점수: {info['sell_score']}/60",
+        f"[{info['name']}({ticker})]  기준일 {info.get('ref_date', '')}  종가 {fmt_price(info['price'])}",
         "",
-        "근거",
+        "지표별 판정 근거",
     ]
-    for item in info["items"]:
-        score = item["buy"] if use_buy else item["sell"]
-        lines.append(f"- {item['name']}: {item['detail']} → {score}점")
+    for label, r in info["results"].items():
+        lines.append(f"- {label}: {r['detail']}  (매수 {r['buy']:.0f}점 / 매도 {r['sell']:.0f}점)")
 
-    key_item = max(info["items"], key=lambda it: it["buy"] if use_buy else it["sell"])
+    lines += ["", "종합"]
+    for adj in info.get("adjustments", []):
+        lines.append(f"- {adj}")
+    lines.append(f"- 매수 총점: {info['buy_score']}/100   매도 총점: {info['sell_score']}/100")
+    lines.append(f"- 판정: {info['emoji']} {info['verdict']}")
+    if info.get("conflicts"):
+        for c in info["conflicts"]:
+            lines.append(f"- 상충 신호: {c}")
+
     lines += [
         "",
-        "핵심 판단",
-        f"→ {key_item['name']} 지표({key_item['detail']})가 가장 강한 근거이며, "
-        f"종합적으로 {info['label']} 의견입니다.",
-    ]
-    if info.get("buy_blocked"):
-        lines.append("※ 매수 보류 조건 충족: 120일선 아래 + MACD 약세 + 일목구름 아래 동시 충족")
-
-    currency = "₩" if ticker.upper().endswith((".KS", ".KQ")) else "$"
-    price_str = f"{currency}{info['price']:,.2f}" if currency == "$" else f"{currency}{info['price']:,.0f}"
-    lines += [
-        "",
-        f"현재가: {price_str}  |  기준시각: {updated_at}",
-        "※ 투자 권유가 아닌 정의된 기술적 분석 모델 기반 참고 정보입니다.",
+        f"기준시각: {updated_at}",
+        "※ 투자 권유가 아닌 정의된 기술적 분석 모델 기반 참고 정보이며, 미래 수익을 보장하지 않습니다.",
     ]
     return "\n".join(lines)
 
