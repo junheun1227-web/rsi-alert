@@ -34,8 +34,8 @@ import sys
 from datetime import datetime, date
 
 import requests
-import yfinance as yf
-import pandas as pd
+
+import analysis
 
 # ---------------------------------------------------------------------------
 # 설정
@@ -67,49 +67,12 @@ KAKAO_REFRESH_TOKEN = os.environ.get("KAKAO_REFRESH_TOKEN", "")
 
 
 # ---------------------------------------------------------------------------
-# RSI 계산 (Wilder's smoothing, 표준 방식)
+# 종목 분석 (RSI + 5개 추가 지표는 analysis.py에서 계산)
 # ---------------------------------------------------------------------------
 
-def calc_rsi(close: pd.Series, period: int = RSI_PERIOD) -> pd.Series:
-    """표준 Wilder's RSI: 최초 평균은 단순평균(SMA), 이후는 Wilder 스무딩으로 재귀 계산.
-    (증권사 HTS/트레이딩뷰 등에서 쓰는 방식과 동일하게 맞춤)"""
-    delta = close.diff()
-    gain = delta.clip(lower=0)
-    loss = -delta.clip(upper=0)
-
-    avg_gain = gain.rolling(window=period).mean()
-    avg_loss = loss.rolling(window=period).mean()
-
-    avg_gain = avg_gain.copy()
-    avg_loss = avg_loss.copy()
-    # index `period`는 rolling()이 이미 올바른 초기 SMA를 채웠으므로 그대로 두고,
-    # 그 다음 값부터 Wilder 재귀 스무딩을 적용한다.
-    for i in range(period + 1, len(gain)):
-        avg_gain.iloc[i] = (avg_gain.iloc[i - 1] * (period - 1) + gain.iloc[i]) / period
-        avg_loss.iloc[i] = (avg_loss.iloc[i - 1] * (period - 1) + loss.iloc[i]) / period
-
-    rs = avg_gain / avg_loss
-    rsi = 100 - (100 / (1 + rs))
-    return rsi
-
-
-def get_current_rsi(ticker: str) -> tuple[float, float]:
-    """일봉 기준 RSI(14)와 최신 가격을 반환.
-    마지막 바(오늘)는 장중 실시간가로 대체되어, 장중에도 최신 RSI를 반영함."""
-    data = yf.Ticker(ticker).history(period="3mo", interval="1d")
-    if data.empty or len(data) < RSI_PERIOD + 1:
-        raise ValueError(f"{ticker}: 데이터 부족")
-
-    # 장중 실시간가로 마지막 종가를 갱신 (fast_info 사용)
-    try:
-        last_price = yf.Ticker(ticker).fast_info["last_price"]
-        if last_price:
-            data.loc[data.index[-1], "Close"] = last_price
-    except Exception:
-        pass  # 실패 시 마지막 일봉 종가 그대로 사용
-
-    rsi_series = calc_rsi(data["Close"])
-    return float(rsi_series.iloc[-1]), float(data["Close"].iloc[-1])
+def get_analysis(ticker: str, name: str) -> dict:
+    """RSI, 볼린저밴드, 이동평균, MACD, 거래량, 일목균형표를 종합한 매수/매도 분석 결과."""
+    return analysis.analyze_ticker(ticker, name)
 
 
 # ---------------------------------------------------------------------------
@@ -138,16 +101,10 @@ def mark_alerted(state: dict, ticker: str, threshold: int, today: str) -> None:
     state[key] = today
 
 
-def save_latest_rsi(results: list, ts: str) -> None:
-    """카카오 챗봇 스킬 서버가 읽어갈 수 있도록 종목별 최신 RSI/가격을 캐시 파일로 저장.
+def save_latest_rsi(analyses: dict, ts: str) -> None:
+    """카카오 챗봇 스킬 서버가 읽어갈 수 있도록 종목별 전체 분석 결과를 캐시 파일로 저장.
     챗봇 쪽에서 매번 야후 파이낸스를 호출하지 않고 이 캐시만 읽으면 되므로 응답이 빠르고 안정적임."""
-    payload = {
-        "updated_at": ts,
-        "tickers": {
-            ticker: {"name": name, "rsi": round(rsi, 2), "price": round(price, 2)}
-            for ticker, name, rsi, price in results
-        },
-    }
+    payload = {"updated_at": ts, "tickers": analyses}
     with open(LATEST_RSI_FILE, "w", encoding="utf-8") as f:
         json.dump(payload, f, indent=2, ensure_ascii=False)
 
@@ -291,16 +248,17 @@ def run(dry_run: bool = False) -> None:
     today = date.today().isoformat()
     state = load_state()
     triggered = []
-    results = []
+    analyses = {}
 
     for ticker, name in TICKERS.items():
         try:
-            rsi, price = get_current_rsi(ticker)
+            result = get_analysis(ticker, name)
         except Exception as e:
             print(f"[에러] {ticker} 조회 실패: {e}")
             continue
 
-        results.append((ticker, name, rsi, price))
+        analyses[ticker] = result
+        rsi, price = result["rsi"], result["price"]
 
         # 25가 30보다 더 급락한 상태이므로 25부터 체크해서 더 심각한 것만 알림
         for threshold in sorted(THRESHOLDS):  # [25, 30]
@@ -311,12 +269,16 @@ def run(dry_run: bool = False) -> None:
 
     # 현재 상태 로그 출력
     ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    print(f"[{ts}] RSI 체크 결과")
-    for ticker, name, rsi, price in results:
-        flag = " <-- 임계값 이하!" if rsi <= max(THRESHOLDS) else ""
-        print(f"  {ticker:6s} ({name:10s}) RSI={rsi:6.2f}  가격=${price:,.2f}{flag}")
+    print(f"[{ts}] 분석 결과")
+    for ticker, result in analyses.items():
+        flag = " <-- RSI 임계값 이하!" if result["rsi"] <= max(THRESHOLDS) else ""
+        print(
+            f"  {ticker:6s} ({result['name']:10s}) RSI={result['rsi']:6.2f}  "
+            f"가격=${result['price']:,.2f}  판단={result['emoji']}{result['label']} "
+            f"(매수 {result['buy_score']}/60, 매도 {result['sell_score']}/60){flag}"
+        )
 
-    save_latest_rsi(results, ts)  # 챗봇 질의응답용 캐시 갱신 (항상 저장)
+    save_latest_rsi(analyses, ts)  # 챗봇 질의응답용 캐시 갱신 (항상 저장)
 
     if not triggered:
         print("알림 조건에 해당하는 종목 없음.")
