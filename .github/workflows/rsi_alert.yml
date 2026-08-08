@@ -26,7 +26,7 @@ jobs:
         env:
           KAKAOWORK_APP_KEY: ${{ secrets.KAKAOWORK_APP_KEY }}
           KAKAOWORK_EMAIL: ${{ secrets.KAKAOWORK_EMAIL }}
-       run: python rsi_alert.py --test
+        run: python rsi_alert.py --test
 
       - name: Persist alert state
         run: |
