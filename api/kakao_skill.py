@@ -62,41 +62,61 @@ def build_kakao_response(text: str) -> dict:
     }
 
 
+def format_analysis(ticker: str, info: dict, updated_at: str) -> str:
+    """6개 지표 종합 매수/매도 분석을 사용자가 지정한 출력 형식으로 정리.
+    (카카오톡 simpleText는 마크다운을 렌더링하지 않으므로 **/### 기호 대신 일반 텍스트로 구성)"""
+    verdict = info["verdict"]  # "매수" / "매도" / "관망"
+    use_buy = verdict != "매도"  # 매도 판단일 때만 매도점수 기준 근거를 보여줌
+
+    lines = [
+        f"[{info['name']}({ticker})]",
+        f"현재 판단: {info['emoji']} {info['label']}",
+        f"매수점수: {info['buy_score']}/60   매도점수: {info['sell_score']}/60",
+        "",
+        "근거",
+    ]
+    for item in info["items"]:
+        score = item["buy"] if use_buy else item["sell"]
+        lines.append(f"- {item['name']}: {item['detail']} → {score}점")
+
+    key_item = max(info["items"], key=lambda it: it["buy"] if use_buy else it["sell"])
+    lines += [
+        "",
+        "핵심 판단",
+        f"→ {key_item['name']} 지표({key_item['detail']})가 가장 강한 근거이며, "
+        f"종합적으로 {info['label']} 의견입니다.",
+    ]
+    if info.get("buy_blocked"):
+        lines.append("※ 매수 보류 조건 충족: 120일선 아래 + MACD 약세 + 일목구름 아래 동시 충족")
+
+    lines += [
+        "",
+        f"현재가: ${info['price']:,.2f}  |  기준시각: {updated_at} (최대 30분 캐시)",
+        "※ 투자 권유가 아닌 정의된 기술적 분석 모델 기반 참고 정보입니다.",
+    ]
+    return "\n".join(lines)
+
+
 def handle_utterance(utterance: str) -> str:
     ticker = find_ticker(utterance)
     if not ticker:
         available = ", ".join(ALIASES.keys())
         return (
-            "어떤 종목인지 못 찾았어요. 예) 'AAPL RSI', '테슬라 RSI 알려줘'\n"
+            "어떤 종목인지 못 찾았어요. 예) 'AAPL 어때', '테슬라 매수 매도'\n"
             f"지원 종목: {available}"
         )
 
     try:
         data = fetch_latest_rsi()
     except Exception as e:
-        return f"RSI 데이터를 불러오지 못했어요 ({e}). 잠시 후 다시 시도해주세요."
+        return f"분석 데이터를 불러오지 못했어요 ({e}). 잠시 후 다시 시도해주세요."
 
     info = data.get("tickers", {}).get(ticker)
     if not info:
-        return f"{ticker} 데이터가 아직 준비되지 않았어요. 잠시 후 다시 시도해주세요."
+        return f"{ticker} 분석 데이터 부족: 아직 준비되지 않았어요. 잠시 후 다시 시도해주세요."
 
     updated_at = data.get("updated_at", "알 수 없음")
-    rsi = info["rsi"]
-    price = info["price"]
-    name = info["name"]
-
-    status = ""
-    if rsi <= 25:
-        status = " → 25 이하: 과매도 심화"
-    elif rsi <= 30:
-        status = " → 30 이하: 과매도"
-
-    return (
-        f"{name}({ticker})\n"
-        f"RSI(14) = {rsi}{status}\n"
-        f"현재가: ${price:,.2f}\n"
-        f"기준시각: {updated_at} (최대 30분 이내 캐시값)"
-    )
+    return format_analysis(ticker, info, updated_at)
 
 
 class handler(BaseHTTPRequestHandler):
