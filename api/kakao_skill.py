@@ -46,6 +46,37 @@ ALIASES = {
     "TSLA": ["tsla", "테슬라", "tesla"],
 }
 
+# 국내 대형주(코스피/코스닥) 직접 매핑 - 야후 검색 API에 의존하지 않고 바로 실시간 조회하기 위함
+# (야후 검색 API가 한글 질의를 잘 못 찾거나 클라우드 IP에서 막히는 경우가 있어 보강용으로 추가)
+KR_STOCKS = {
+    "005930.KS": ("삼성전자", ["삼성전자", "samsung electronics", "005930"]),
+    "000660.KS": ("SK하이닉스", ["sk하이닉스", "하이닉스", "000660"]),
+    "035420.KS": ("NAVER", ["네이버", "naver", "035420"]),
+    "035720.KS": ("카카오", ["카카오", "kakao", "035720"]),
+    "005380.KS": ("현대차", ["현대차", "현대자동차", "005380"]),
+    "000270.KS": ("기아", ["기아", "기아차", "000270"]),
+    "373220.KS": ("LG에너지솔루션", ["lg에너지솔루션", "엘지에너지솔루션", "373220"]),
+    "207940.KS": ("삼성바이오로직스", ["삼성바이오로직스", "삼성바이오", "207940"]),
+    "006400.KS": ("삼성SDI", ["삼성sdi", "006400"]),
+    "051910.KS": ("LG화학", ["lg화학", "엘지화학", "051910"]),
+    "068270.KS": ("셀트리온", ["셀트리온", "068270"]),
+    "005490.KS": ("POSCO홀딩스", ["포스코홀딩스", "포스코", "posco", "005490"]),
+    "012330.KS": ("현대모비스", ["현대모비스", "012330"]),
+    "066570.KS": ("LG전자", ["lg전자", "엘지전자", "066570"]),
+    "096770.KS": ("SK이노베이션", ["sk이노베이션", "096770"]),
+    "323410.KS": ("카카오뱅크", ["카카오뱅크", "323410"]),
+    "018260.KS": ("삼성에스디에스", ["삼성에스디에스", "samsung sds", "018260"]),
+    "105560.KS": ("KB금융", ["kb금융", "국민은행", "105560"]),
+    "055550.KS": ("신한지주", ["신한지주", "신한은행", "055550"]),
+    "015760.KS": ("한국전력", ["한국전력", "한전", "015760"]),
+    "010130.KS": ("고려아연", ["고려아연", "010130"]),
+    "011200.KS": ("HMM", ["hmm", "011200"]),
+    "042700.KS": ("한미반도체", ["한미반도체", "042700"]),
+    "247540.KQ": ("에코프로비엠", ["에코프로비엠", "247540"]),
+    "086520.KQ": ("에코프로", ["에코프로", "086520"]),
+    "196170.KQ": ("알테오젠", ["알테오젠", "196170"]),
+}
+
 # 질문 문장에서 종목명만 추출하기 위해 제거할 잡단어
 FILLER_WORDS = [
     "어떄", "어때", "어떠니", "알려줘", "알려주세요", "분석해줘", "분석",
@@ -62,6 +93,27 @@ def find_ticker(utterance: str):
             if kw in text:
                 return ticker
     return None
+
+
+def find_kr_ticker(query: str):
+    text = f" {query.lower()} "
+    for ticker, (name, keywords) in KR_STOCKS.items():
+        for kw in keywords:
+            if kw in text:
+                return ticker, name
+    return None, None
+
+
+def resolve_kr_code(query: str):
+    """6자리 숫자 종목코드를 입력한 경우 코스피(.KS)/코스닥(.KQ) 여부를 직접 확인."""
+    digits = query.strip()
+    if not (digits.isdigit() and len(digits) == 6):
+        return None, None
+    for suffix in (".KS", ".KQ"):
+        ticker = digits + suffix
+        if analysis.ticker_exists(ticker):
+            return ticker, digits
+    return None, None
 
 
 def extract_query(utterance: str) -> str:
@@ -168,7 +220,15 @@ def handle_utterance(utterance: str) -> str:
     if not query:
         return "어떤 종목인지 못 찾았어요. 예) 'AAPL 어때', '삼성전자 매수 매도', '005930'"
 
-    resolved_ticker, resolved_name = resolve_ticker(query)
+    # 2-1) 국내 대형주 직접 매핑 (야후 검색 API를 거치지 않아 더 빠르고 안정적)
+    resolved_ticker, resolved_name = find_kr_ticker(query)
+    # 2-2) 6자리 숫자 종목코드: 코스피/코스닥 직접 판별
+    if not resolved_ticker:
+        resolved_ticker, resolved_name = resolve_kr_code(query)
+    # 2-3) 그 외: 야후 파이낸스 검색 API로 종목명 -> 티커 해석 (미국 등 그 외 종목)
+    if not resolved_ticker:
+        resolved_ticker, resolved_name = resolve_ticker(query)
+
     if not resolved_ticker:
         return f"'{query}' 종목을 찾지 못했어요. 정확한 종목명이나 티커로 다시 시도해주세요."
 
