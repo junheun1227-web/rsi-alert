@@ -21,6 +21,16 @@ RSI_PERIOD = 14
 # 데이터 조회
 # ---------------------------------------------------------------------------
 
+def ticker_exists(ticker: str) -> bool:
+    """짧은 기간 데이터만 가져와 해당 티커가 실제로 존재하는지 저비용으로 확인 (한국 종목코드의
+    .KS/.KQ 판별 등에 사용). fetch_ohlcv와 달리 최소 데이터 길이를 요구하지 않는다."""
+    try:
+        data = yf.Ticker(ticker).history(period="5d", interval="1d")
+        return not data.empty
+    except Exception:
+        return False
+
+
 def fetch_ohlcv(ticker: str, period: str = "2y") -> pd.DataFrame:
     """120일 이동평균, 일목균형표(52+26) 계산에 충분한 기간을 확보하기 위해 2년치 일봉을 가져온다."""
     data = yf.Ticker(ticker).history(period=period, interval="1d")
