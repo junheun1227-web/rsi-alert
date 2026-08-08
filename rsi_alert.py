@@ -316,7 +316,14 @@ def run(dry_run: bool = False) -> None:
             continue
 
         analyses[ticker] = result
-        rsi, price = result["rsi"], result["price"]
+
+        if result.get("insufficient_data"):
+            print(f"  [경고] {ticker} ({name}) 데이터 부족으로 분석 생략: {', '.join(result.get('missing', []))}")
+            continue
+
+        rsi, price = result.get("rsi"), result["price"]
+        if rsi is None:
+            continue
 
         # 25가 30보다 더 급락한 상태이므로 25부터 체크해서 더 심각한 것만 알림
         for threshold in sorted(THRESHOLDS):  # [25, 30]
@@ -329,11 +336,14 @@ def run(dry_run: bool = False) -> None:
     ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     print(f"[{ts}] 분석 결과")
     for ticker, result in analyses.items():
+        if result.get("insufficient_data") or result.get("rsi") is None:
+            print(f"  {ticker:6s} ({result['name']:10s}) 데이터 부족")
+            continue
         flag = " <-- RSI 임계값 이하!" if result["rsi"] <= max(THRESHOLDS) else ""
         print(
             f"  {ticker:6s} ({result['name']:10s}) RSI={result['rsi']:6.2f}  "
-            f"가격=${result['price']:,.2f}  판단={result['emoji']}{result['label']} "
-            f"(매수 {result['buy_score']}/60, 매도 {result['sell_score']}/60){flag}"
+            f"가격=${result['price']:,.2f}  판단={result['emoji']}{result['verdict']} "
+            f"(매수 {result['buy_score']}/100, 매도 {result['sell_score']}/100){flag}"
         )
 
     save_latest_rsi(analyses, ts)  # 챗봇 질의응답용 캐시 갱신 (항상 저장)

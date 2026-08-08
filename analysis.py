@@ -1,18 +1,20 @@
 """
-6개 기술적 지표 기반 매수/매도 판단 엔진.
+기술적 분석 스코어링 엔진 (사용자 지정 규칙 v2).
 
-사용자가 정의한 채점 기준(RSI/볼린저밴드/이동평균/MACD/거래량/일목균형표, 각 10점 만점, 총 60점)에
-따라 종목별 매수 점수·매도 점수·최종 판단을 계산한다.
+RSI(14)/볼린저밴드(20,2시그마)/이동평균(5,20,60)/MACD(12,26,9)/거래량/일목균형표(9,26,52)
+6개 지표로 매수 점수·매도 점수를 각각 100점 만점으로 산출하고, ADX(14) 장세 필터·하락추세
+방어·RSI 게이트 보정을 거쳐 최종 판정을 내린다.
 
-주의: "근접", "반등" 등 사용자가 정확한 수치를 명시하지 않은 항목은 아래 코드에 합리적인 기준을
-직접 정의해 사용했다 (각 함수의 주석 참고). RSI 30/25 push 알림(rsi_alert.py의 THRESHOLDS)과는
-별개의 로직이며, 이 모듈은 매수/매도 "점수화 모델"만 담당한다.
+데이터는 야후 파이낸스 실제 시세로 계산한다 (추정치 없음). 각 지표는 계산에 필요한 최소
+거래일 수가 확보되지 않으면 "데이터 없음"으로 표시하고 0점 처리하며, 6개 중 3개 이상이
+데이터 없음이면 점수를 매기지 않고 데이터 부족을 알린다.
 
 투자 판단의 참고용이며 투자 권유가 아니다. 기술적 분석은 미래 수익을 보장하지 않는다.
 """
 
-import yfinance as yf
+import numpy as np
 import pandas as pd
+import yfinance as yf
 
 RSI_PERIOD = 14
 
@@ -22,8 +24,6 @@ RSI_PERIOD = 14
 # ---------------------------------------------------------------------------
 
 def ticker_exists(ticker: str) -> bool:
-    """짧은 기간 데이터만 가져와 해당 티커가 실제로 존재하는지 저비용으로 확인 (한국 종목코드의
-    .KS/.KQ 판별 등에 사용). fetch_ohlcv와 달리 최소 데이터 길이를 요구하지 않는다."""
     try:
         data = yf.Ticker(ticker).history(period="5d", interval="1d")
         return not data.empty
@@ -32,15 +32,12 @@ def ticker_exists(ticker: str) -> bool:
 
 
 def fetch_ohlcv(ticker: str, period: str = "2y") -> pd.DataFrame:
-    """120일 이동평균, 일목균형표(52+26) 계산에 충분한 기간을 확보하기 위해 2년치 일봉을 가져온다.
-    최근 상장(IPO)한 종목이라 데이터가 짧은 경우, RSI/볼린저밴드/거래량 정도는 계산 가능한
-    최소 길이(15일)만 확보되면 계속 진행한다 - 120일선/일목균형표 등은 각 채점 함수에서
-    데이터가 부족하면 개별적으로 "데이터 부족"으로 표시하고 0점 처리한다."""
+    """일목균형표(52+26)까지 안정적으로 계산되도록 2년치 일봉을 가져온다.
+    최근 상장 종목 등으로 데이터가 짧으면 각 지표별로 개별적으로 '데이터 없음' 처리한다."""
     data = yf.Ticker(ticker).history(period=period, interval="1d")
     if data.empty or len(data) < RSI_PERIOD + 1:
         raise ValueError(f"{ticker}: 상장 초기 등으로 분석 가능한 데이터가 부족합니다")
 
-    # 장중 실시간가로 마지막 종가를 갱신
     try:
         last_price = yf.Ticker(ticker).fast_info["last_price"]
         if last_price:
@@ -72,231 +69,213 @@ def calc_rsi(close: pd.Series, period: int = RSI_PERIOD) -> pd.Series:
     return 100 - (100 / (1 + rs))
 
 
-def _trend(series: pd.Series, lookback: int = 5) -> str:
-    """최근 lookback일 대비 변화율로 상승/횡보/하락 판정 (기준: ±0.5%)."""
-    if len(series) <= lookback:
-        return "횡보"
-    now, prev = series.iloc[-1], series.iloc[-1 - lookback]
-    if pd.isna(now) or pd.isna(prev) or prev == 0:
-        return "횡보"
-    change = (now - prev) / abs(prev)
-    if change > 0.005:
-        return "상승"
-    if change < -0.005:
-        return "하락"
-    return "횡보"
+def _wilder_smooth(series: pd.Series, period: int) -> pd.Series:
+    result = series.rolling(window=period).mean().copy()
+    for i in range(period + 1, len(series)):
+        prev = result.iloc[i - 1]
+        if pd.isna(prev):
+            continue
+        result.iloc[i] = (prev * (period - 1) + series.iloc[i]) / period
+    return result
+
+
+def calc_adx(high: pd.Series, low: pd.Series, close: pd.Series, period: int = 14) -> pd.Series:
+    """표준 Wilder's ADX(14)."""
+    prev_close = close.shift(1)
+    tr = pd.concat(
+        [high - low, (high - prev_close).abs(), (low - prev_close).abs()], axis=1
+    ).max(axis=1)
+
+    up_move = high.diff()
+    down_move = -low.diff()
+    plus_dm = pd.Series(
+        np.where((up_move > down_move) & (up_move > 0), up_move, 0.0), index=high.index
+    )
+    minus_dm = pd.Series(
+        np.where((down_move > up_move) & (down_move > 0), down_move, 0.0), index=high.index
+    )
+
+    atr = _wilder_smooth(tr, period)
+    plus_di = 100 * _wilder_smooth(plus_dm, period) / atr
+    minus_di = 100 * _wilder_smooth(minus_dm, period) / atr
+    dx = 100 * (plus_di - minus_di).abs() / (plus_di + minus_di)
+    return _wilder_smooth(dx, period)
+
+
+def detect_rsi_divergence(close: pd.Series, rsi: pd.Series, lookback: int = 14):
+    """단순화된 다이버전스 감지: 최근 lookback일 구간의 저점/고점 대비
+    현재 가격은 갱신됐는데 RSI는 갱신되지 않은 경우를 상승/하락 다이버전스로 판정."""
+    window_close = close.iloc[-lookback:]
+    window_rsi = rsi.iloc[-lookback:]
+    if window_close.isna().any() or window_rsi.isna().any():
+        return False, False
+
+    idx_min = window_close.idxmin()
+    idx_max = window_close.idxmax()
+    last_idx = window_close.index[-1]
+
+    bullish = False
+    bearish = False
+    if idx_min != last_idx:
+        if window_close.iloc[-1] < window_close.loc[idx_min] and rsi.iloc[-1] > window_rsi.loc[idx_min]:
+            bullish = True
+    if idx_max != last_idx:
+        if window_close.iloc[-1] > window_close.loc[idx_max] and rsi.iloc[-1] < window_rsi.loc[idx_max]:
+            bearish = True
+    return bullish, bearish
 
 
 # ---------------------------------------------------------------------------
-# 지표별 채점 (각 함수는 (매수점수, 매도점수, 설명문자열)을 반환)
+# 지표별 채점 - 각 함수는 dict를 반환: {available, buy, sell, value_str, detail}
 # ---------------------------------------------------------------------------
 
-def score_rsi(close: pd.Series):
-    rsi = float(calc_rsi(close).iloc[-1])
+def score_rsi(close: pd.Series) -> dict:
+    if len(close) < RSI_PERIOD + 1:
+        return {"available": False, "buy": 0, "sell": 0, "value": "데이터 없음", "detail": "데이터 없음"}
 
-    if rsi <= 25:
-        buy = 10
-    elif rsi <= 30:
-        buy = 9
-    elif rsi <= 35:
-        buy = 6
-    elif rsi <= 40:
-        buy = 3
-    else:
-        buy = 0
+    rsi_series = calc_rsi(close)
+    rsi = float(rsi_series.iloc[-1])
+    if pd.isna(rsi):
+        return {"available": False, "buy": 0, "sell": 0, "value": "데이터 없음", "detail": "데이터 없음"}
 
-    if rsi >= 75:
-        sell = 10
-    elif rsi >= 71:
-        sell = 9
-    elif rsi >= 66:
-        sell = 7
-    elif rsi >= 61:
-        sell = 4
-    elif rsi >= 51:
-        sell = 2
-    else:
-        sell = 0
+    buy = 20 if rsi <= 30 else (12 if rsi <= 40 else 0)
+    sell = 20 if rsi >= 70 else (12 if rsi >= 60 else 0)
 
-    return buy, sell, f"{rsi:.1f}", rsi
+    bullish_div, bearish_div = detect_rsi_divergence(close, rsi_series)
+    if bullish_div:
+        buy += 5
+    if bearish_div:
+        sell += 5
+
+    div_note = ""
+    if bullish_div:
+        div_note = ", 상승 다이버전스 포착"
+    elif bearish_div:
+        div_note = ", 하락 다이버전스 포착"
+
+    zone = "과매도" if rsi <= 30 else ("과매수" if rsi >= 70 else "중립")
+    detail = f"{rsi:.1f} ({zone}{div_note})"
+    return {"available": True, "buy": buy, "sell": sell, "value": f"{rsi:.1f}", "detail": detail, "raw_rsi": rsi}
 
 
-def score_bollinger(close: pd.Series):
-    """근접 기준: 상/하단 밴드로부터 밴드폭의 25% 이내를 '근접'으로 정의."""
+def score_bollinger(close: pd.Series) -> dict:
     if len(close) < 20:
-        return 0, 0, "데이터 부족 (상장 초기, 볼린저밴드 계산 불가)"
+        return {"available": False, "buy": 0, "sell": 0, "value": "데이터 없음", "detail": "데이터 없음"}
 
     mid = close.rolling(20).mean()
     std = close.rolling(20).std()
     upper = mid + 2 * std
     lower = mid - 2 * std
 
-    c0, c1 = close.iloc[-1], close.iloc[-2]
-    u0, u1 = upper.iloc[-1], upper.iloc[-2]
-    l0, l1 = lower.iloc[-1], lower.iloc[-2]
-    m0 = mid.iloc[-1]
+    c0 = close.iloc[-1]
+    u0, l0 = upper.iloc[-1], lower.iloc[-1]
+    if pd.isna(u0) or pd.isna(l0) or u0 == l0:
+        return {"available": False, "buy": 0, "sell": 0, "value": "데이터 없음", "detail": "데이터 없음"}
 
-    band_width = (u0 - l0) or 1e-9
-    position = (c0 - l0) / band_width  # 0=하단, 0.5=중심, 1=상단
+    percent_b = (c0 - l0) / (u0 - l0)
 
-    if c1 < l1 and c0 >= l0:
-        buy, buy_desc = 10, "하단 이탈 후 복귀"
-    elif c0 <= l0:
-        buy, buy_desc = 8, "하단밴드 터치"
-    elif position <= 0.25:
-        buy, buy_desc = 6, "하단 근접"
-    elif c0 <= m0:
-        buy, buy_desc = 3, "중심선 아래"
-    else:
-        buy, buy_desc = 0, "중심선 위"
+    buy = 15 if percent_b <= 0 else (9 if percent_b <= 0.2 else 0)
+    sell = 15 if percent_b >= 1 else (9 if percent_b >= 0.8 else 0)
 
-    if c1 > u1 and c0 <= u0:
-        sell, sell_desc = 10, "상단 이탈 후 복귀"
-    elif c0 >= u0:
-        sell, sell_desc = 8, "상단밴드 터치"
-    elif position >= 0.75:
-        sell, sell_desc = 6, "상단 근접"
-    elif c0 >= m0:
-        sell, sell_desc = 3, "중심선 위"
-    else:
-        sell, sell_desc = 0, "중심선 아래"
-
-    desc = buy_desc if buy >= sell else sell_desc
-    return buy, sell, desc
+    band_width_pct = (u0 - l0) / mid.iloc[-1] * 100 if mid.iloc[-1] else 0
+    detail = f"%B={percent_b:.2f} (밴드폭 {band_width_pct:.1f}%)"
+    return {"available": True, "buy": buy, "sell": sell, "value": f"{percent_b:.2f}", "detail": detail}
 
 
-def score_ma(close: pd.Series):
-    """'근처에서 반등' 기준: 최근 3일 최저 종가가 20일선 대비 1% 이내로 접근한 뒤 현재가가 20일선 위."""
+def score_ma(close: pd.Series) -> dict:
+    if len(close) < 61:
+        return {"available": False, "buy": 0, "sell": 0, "value": "데이터 없음", "detail": "데이터 없음"}
+
+    ma5 = close.rolling(5).mean()
     ma20 = close.rolling(20).mean()
     ma60 = close.rolling(60).mean()
-    ma120 = close.rolling(120).mean()
 
-    if pd.isna(ma120.iloc[-1]):
-        # 상장한 지 120거래일(약 6개월) 미만이면 120일선을 계산할 수 없음
-        return 0, 0, "데이터 부족 (상장 초기, 120일선 계산 불가)"
+    if pd.isna(ma60.iloc[-1]):
+        return {"available": False, "buy": 0, "sell": 0, "value": "데이터 없음", "detail": "데이터 없음"}
 
-    c0, c1 = close.iloc[-1], close.iloc[-2]
+    c0 = close.iloc[-1]
+    ma5_0, ma5_1 = ma5.iloc[-1], ma5.iloc[-2]
     ma20_0, ma20_1 = ma20.iloc[-1], ma20.iloc[-2]
+    ma60_0 = ma60.iloc[-1]
 
-    trend20 = _trend(ma20)
-    trend60 = _trend(ma60)
-    trend120 = _trend(ma120)
-    all_down = trend20 == "하락" and trend60 == "하락" and trend120 == "하락"
-    all_up = trend20 == "상승" and trend60 == "상승" and trend120 == "상승"
+    golden_cross = ma5_1 <= ma20_1 and ma5_0 > ma20_0
+    dead_cross = ma5_1 >= ma20_1 and ma5_0 < ma20_0
+    aligned_up = ma5_0 > ma20_0 > ma60_0     # 정배열
+    aligned_down = ma5_0 < ma20_0 < ma60_0   # 역배열
 
-    recent_low = close.iloc[-3:].min()
-    near_ma20 = (ma20_0 != 0) and (abs(recent_low - ma20_0) / ma20_0 < 0.01)
+    buy = (10 if golden_cross else 0) + (5 if c0 > ma20_0 else 0) + (5 if aligned_up else 0)
+    sell = (10 if dead_cross else 0) + (5 if c0 < ma20_0 else 0) + (5 if aligned_down else 0)
 
-    crossed_up = c1 < ma20_1 and c0 >= ma20_0
-    crossed_down = c1 > ma20_1 and c0 <= ma20_0
-
-    if crossed_up:
-        buy = 10
-    elif c0 > ma20_0 and near_ma20:
-        buy = 8
-    elif c0 < ma20_0 and trend20 == "상승":
-        buy = 5
-    elif trend20 == "횡보":
-        buy = 3
-    elif trend20 == "하락" and not all_down:
-        buy = 2
-    else:
-        buy = 0
-
-    if crossed_down:
-        sell = 10
-    elif c0 < ma20_0 and near_ma20:
-        sell = 8
-    elif c0 > ma20_0 and trend20 == "하락":
-        sell = 5
-    elif trend20 == "횡보":
-        sell = 3
-    elif trend20 == "상승" and not all_up:
-        sell = 2
-    else:
-        sell = 0
-
-    desc = (
-        f"20일선 {ma20_0:.1f}({trend20}) / 60일선 {ma60.iloc[-1]:.1f}({trend60}) / "
-        f"120일선 {ma120.iloc[-1]:.1f}({trend120})"
-    )
-    return buy, sell, desc
+    state = "정배열" if aligned_up else ("역배열" if aligned_down else "혼조")
+    cross_note = "골든크로스" if golden_cross else ("데드크로스" if dead_cross else "")
+    disparity = (c0 - ma20_0) / ma20_0 * 100 if ma20_0 else 0
+    detail = f"5/20/60일선 {ma5_0:.1f}/{ma20_0:.1f}/{ma60_0:.1f} ({state}{', ' + cross_note if cross_note else ''}, 20일선 이격도 {disparity:+.1f}%)"
+    return {"available": True, "buy": buy, "sell": sell, "value": state, "detail": detail}
 
 
-def score_macd(close: pd.Series):
-    if len(close) < 35:  # EMA26 + Signal(EMA9)가 안정적으로 계산되기 위한 최소 길이
-        return 0, 0, "데이터 부족 (상장 초기, MACD 계산 불가)", 0.0, 0.0
+def score_macd(close: pd.Series) -> dict:
+    if len(close) < 36:
+        return {"available": False, "buy": 0, "sell": 0, "value": "데이터 없음", "detail": "데이터 없음"}
 
     ema12 = close.ewm(span=12, adjust=False).mean()
     ema26 = close.ewm(span=26, adjust=False).mean()
     macd = ema12 - ema26
     signal = macd.ewm(span=9, adjust=False).mean()
+    hist = macd - signal
 
     m0, m1 = macd.iloc[-1], macd.iloc[-2]
     s0, s1 = signal.iloc[-1], signal.iloc[-2]
-    rising = m0 > m1
+    h0, h1 = hist.iloc[-1], hist.iloc[-2]
 
-    cross_up = m1 < s1 and m0 >= s0
-    cross_down = m1 > s1 and m0 <= s0
+    cross_up = m1 <= s1 and m0 > s0
+    cross_down = m1 >= s1 and m0 < s0
+    hist_flip_up = h1 < 0 and h0 > 0
+    hist_flip_down = h1 > 0 and h0 < 0
 
-    if cross_up and m0 < 0:
+    buy = (10 if cross_up else 0) + (5 if hist_flip_up else 0) + (5 if m0 > 0 else 0)
+    sell = (10 if cross_down else 0) + (5 if hist_flip_down else 0) + (5 if m0 < 0 else 0)
+
+    zero_pos = "0선 위" if m0 > 0 else "0선 아래"
+    cross_note = "시그널 상향돌파" if cross_up else ("시그널 하향돌파" if cross_down else "교차 없음")
+    detail = f"MACD {m0:.2f} / Signal {s0:.2f} ({zero_pos}, {cross_note})"
+    return {"available": True, "buy": buy, "sell": sell, "value": f"{m0:.2f}", "detail": detail}
+
+
+def score_volume(close: pd.Series, volume: pd.Series) -> dict:
+    if len(close) < 21:
+        return {"available": False, "buy": 0, "sell": 0, "value": "데이터 없음", "detail": "데이터 없음"}
+
+    avg20 = volume.shift(1).rolling(20).mean()
+    v0, avg0 = volume.iloc[-1], avg20.iloc[-1]
+    if pd.isna(avg0) or avg0 == 0:
+        return {"available": False, "buy": 0, "sell": 0, "value": "데이터 없음", "detail": "데이터 없음"}
+
+    ratio = v0 / avg0
+    up_day = close.iloc[-1] > close.iloc[-2]
+    down_day = close.iloc[-1] < close.iloc[-2]
+
+    if up_day and ratio >= 1.5:
         buy = 10
-    elif cross_up:
-        buy = 8
-    elif m0 > s0:
+    elif up_day and ratio >= 1.2:
         buy = 6
-    elif rising:
-        buy = 4
     else:
         buy = 0
 
-    if cross_down and m0 > 0:
+    if down_day and ratio >= 1.5:
         sell = 10
-    elif cross_down:
-        sell = 8
-    elif m0 < s0:
+    elif up_day and ratio < 0.8:  # 상승 중 거래량 감소 (모멘텀 약화)
         sell = 6
-    elif not rising:
-        sell = 4
     else:
         sell = 0
 
-    desc = f"MACD {m0:.2f} / Signal {s0:.2f}"
-    return buy, sell, desc, float(m0), float(s0)
+    direction = "양봉" if up_day else ("음봉" if down_day else "보합")
+    detail = f"20일 평균 대비 {ratio * 100:.0f}% ({direction})"
+    return {"available": True, "buy": buy, "sell": sell, "value": f"{ratio * 100:.0f}%", "detail": detail}
 
 
-def score_volume(close: pd.Series, volume: pd.Series):
-    if len(close) < 21:
-        return 0, 0, "데이터 부족 (상장 초기, 거래량 평균 계산 불가)"
-
-    avg20 = volume.shift(1).rolling(20).mean()
-    v0 = volume.iloc[-1]
-    avg0 = avg20.iloc[-1]
-    ratio = (v0 / avg0) if avg0 else 1.0
-
-    price_up = close.iloc[-1] > close.iloc[-2]
-    price_down = close.iloc[-1] < close.iloc[-2]
-
-    def tier(r):
-        if r >= 2.0:
-            return 10
-        if r >= 1.5:
-            return 8
-        if r >= 1.2:
-            return 6
-        if r >= 0.8:
-            return 3
-        return 1
-
-    buy = tier(ratio) if price_up else 0
-    sell = tier(ratio) if price_down else 0
-    desc = f"평균 대비 {ratio * 100:.0f}%"
-    return buy, sell, desc
-
-
-def score_ichimoku(high: pd.Series, low: pd.Series, close: pd.Series):
-    if len(close) < 78:  # 선행스팬B(52) + 26 선행 이동에 필요한 최소 길이
-        return 0, 0, "데이터 부족 (상장 초기, 일목균형표 계산 불가)", float("-inf")
+def score_ichimoku(high: pd.Series, low: pd.Series, close: pd.Series) -> dict:
+    if len(close) < 79:
+        return {"available": False, "buy": 0, "sell": 0, "value": "데이터 없음", "detail": "데이터 없음"}
 
     conv = (high.rolling(9).max() + low.rolling(9).min()) / 2
     base = (high.rolling(26).max() + low.rolling(26).min()) / 2
@@ -304,120 +283,146 @@ def score_ichimoku(high: pd.Series, low: pd.Series, close: pd.Series):
     span_b = ((high.rolling(52).max() + low.rolling(52).min()) / 2).shift(26)
 
     c0, c1 = close.iloc[-1], close.iloc[-2]
-    top0, bot0 = max(span_a.iloc[-1], span_b.iloc[-1]), min(span_a.iloc[-1], span_b.iloc[-1])
-    top1, bot1 = max(span_a.iloc[-2], span_b.iloc[-2]), min(span_a.iloc[-2], span_b.iloc[-2])
-    conv0, base0 = conv.iloc[-1], base.iloc[-1]
     a0, b0 = span_a.iloc[-1], span_b.iloc[-1]
+    a1, b1 = span_a.iloc[-2], span_b.iloc[-2]
+    if pd.isna(a0) or pd.isna(b0):
+        return {"available": False, "buy": 0, "sell": 0, "value": "데이터 없음", "detail": "데이터 없음"}
+
+    top0, bot0 = max(a0, b0), min(a0, b0)
+    top1, bot1 = max(a1, b1), min(a1, b1)
+    conv0, base0 = conv.iloc[-1], base.iloc[-1]
 
     cross_up = c1 < top1 and c0 >= top0
     cross_down = c1 > bot1 and c0 <= bot0
 
-    if cross_up:
-        buy = 10
-    elif c0 > top0:
-        buy = 8
-    elif conv0 > base0:
-        buy = 6
-    elif a0 > b0:
-        buy = 4
-    else:
-        buy = 0
+    chikou_prev = close.iloc[-27] if len(close) >= 27 else None
+    chikou_buy = chikou_prev is not None and c0 > chikou_prev
+    chikou_sell = chikou_prev is not None and c0 < chikou_prev
 
-    if cross_down:
-        sell = 10
-    elif c0 < bot0:
-        sell = 8
-    elif conv0 < base0:
-        sell = 6
-    elif a0 < b0:
-        sell = 4
-    else:
-        sell = 0
+    buy = (6 if cross_up else 0) + (5 if conv0 > base0 else 0) + (4 if chikou_buy else 0)
+    sell = (6 if cross_down else 0) + (5 if conv0 < base0 else 0) + (4 if chikou_sell else 0)
 
-    if c0 > top0:
-        position = "구름 위"
-    elif c0 < bot0:
-        position = "구름 아래"
-    else:
-        position = "구름 안"
-    desc = f"{position} (전환선 {conv0:.1f} / 기준선 {base0:.1f})"
-    return buy, sell, desc, bot0
+    position = "구름 위" if c0 > top0 else ("구름 아래" if c0 < bot0 else "구름 안")
+    cloud_thickness = abs(a0 - b0) / c0 * 100 if c0 else 0
+    detail = (
+        f"{position}, 전환선 {conv0:.1f} / 기준선 {base0:.1f}, "
+        f"구름두께 {cloud_thickness:.1f}%, 후행스팬 {'우호적' if chikou_buy else ('비우호적' if chikou_sell else '중립')}"
+    )
+    return {"available": True, "buy": buy, "sell": sell, "value": position, "detail": detail}
 
 
 # ---------------------------------------------------------------------------
 # 종합 판단
 # ---------------------------------------------------------------------------
 
-def classify(score: int) -> str:
-    if score >= 50:
-        return "강력"
-    if score >= 40:
-        return "보통"
-    if score >= 35:
-        return "후보"
-    return "없음"
-
-
 def analyze_ticker(ticker: str, name: str) -> dict:
     data = fetch_ohlcv(ticker)
     close, high, low, volume = data["Close"], data["High"], data["Low"], data["Volume"]
+    ref_date = data.index[-1].strftime("%Y-%m-%d")
+    price = float(close.iloc[-1])
 
-    rsi_buy, rsi_sell, rsi_desc, rsi_value = score_rsi(close)
-    bb_buy, bb_sell, bb_desc = score_bollinger(close)
-    ma_buy, ma_sell, ma_desc = score_ma(close)
-    macd_buy, macd_sell, macd_desc, macd_val, signal_val = score_macd(close)
-    vol_buy, vol_sell, vol_desc = score_volume(close, volume)
-    ichi_buy, ichi_sell, ichi_desc, cloud_bottom = score_ichimoku(high, low, close)
+    rsi_r = score_rsi(close)
+    bb_r = score_bollinger(close)
+    ma_r = score_ma(close)
+    macd_r = score_macd(close)
+    vol_r = score_volume(close, volume)
+    ichi_r = score_ichimoku(high, low, close)
+
+    results = {"RSI(14)": rsi_r, "볼린저밴드 %B": bb_r, "이동평균선": ma_r, "MACD": macd_r,
+               "거래량": vol_r, "일목균형표": ichi_r}
+    unavailable = [k for k, v in results.items() if not v["available"]]
+
+    if len(unavailable) >= 3:
+        return {
+            "name": name,
+            "ref_date": ref_date,
+            "price": round(price, 2),
+            "insufficient_data": True,
+            "missing": unavailable,
+            "results": results,
+        }
+
+    # --- ADX(14) 장세 필터 ---
+    adx_series = calc_adx(high, low, close) if len(close) >= 30 else None
+    adx_value = float(adx_series.iloc[-1]) if adx_series is not None and not pd.isna(adx_series.iloc[-1]) else None
+
+    if adx_value is not None and adx_value < 20:
+        regime, mean_rev_mult, trend_mult = "횡보장", 1.5, 0.5
+    elif adx_value is not None and adx_value > 25:
+        regime, mean_rev_mult, trend_mult = "추세장", 0.5, 1.5
+    else:
+        regime, mean_rev_mult, trend_mult = "중립", 1.0, 1.0
+
+    rsi_buy, rsi_sell = rsi_r["buy"] * mean_rev_mult, rsi_r["sell"] * mean_rev_mult
+    bb_buy, bb_sell = bb_r["buy"] * mean_rev_mult, bb_r["sell"] * mean_rev_mult
+    ma_buy, ma_sell = ma_r["buy"] * trend_mult, ma_r["sell"] * trend_mult
+    macd_buy, macd_sell = macd_r["buy"] * trend_mult, macd_r["sell"] * trend_mult
+    vol_buy, vol_sell = vol_r["buy"], vol_r["sell"]
+    ichi_buy, ichi_sell = ichi_r["buy"], ichi_r["sell"]
 
     buy_total = rsi_buy + bb_buy + ma_buy + macd_buy + vol_buy + ichi_buy
     sell_total = rsi_sell + bb_sell + ma_sell + macd_sell + vol_sell + ichi_sell
 
-    price = float(close.iloc[-1])
-    ma120 = float(close.rolling(120).mean().iloc[-1])
+    adjustments = [f"장세: ADX {adx_value:.1f} ({regime})" if adx_value is not None else "장세: ADX 계산 불가 (중립 적용)"]
+    if regime != "중립":
+        adjustments.append(f"RSI·볼린저 x{mean_rev_mult}, 이평선·MACD x{trend_mult} 적용")
 
-    # 매수 금지 조건: 120일선 아래 + MACD<Signal + 구름 아래 동시 충족
-    buy_blocked = bool((price < ma120) and (macd_val < signal_val) and (price < cloud_bottom))
+    # --- 하락추세 방어: 종가 < 120일선이면 매수 -15 ---
+    ma120 = close.rolling(120).mean()
+    ma120_0 = ma120.iloc[-1] if len(close) >= 120 else None
+    if ma120_0 is not None and not pd.isna(ma120_0) and price < ma120_0:
+        buy_total -= 15
+        adjustments.append("하락추세 방어: 종가<120일선, 매수 -15")
+    buy_total = max(0, buy_total)
+    sell_total = max(0, sell_total)
 
-    buy_grade = classify(buy_total)
-    sell_grade = classify(sell_total)
-
-    if not buy_blocked and buy_total >= 40:
+    # --- 판정 ---
+    if buy_total >= 75:
+        verdict = "적극 매수"
+    elif buy_total >= 60:
         verdict = "매수"
-        emoji = "🟢"
-    elif sell_total >= 40:
-        verdict = "매도"
-        emoji = "🔴"
+    elif sell_total >= 75:
+        verdict = "전량 매도"
+    elif sell_total >= 60:
+        verdict = "분할 매도"
     else:
         verdict = "관망"
-        emoji = "🟡"
 
-    label = {
-        ("매수", "강력"): "강력 매수",
-        ("매수", "보통"): "매수",
-        ("매도", "강력"): "강력 매도",
-        ("매도", "보통"): "매도",
-    }.get((verdict, buy_grade if verdict == "매수" else sell_grade), verdict)
-    if buy_blocked and buy_total >= 35:
-        label = "관망 (매수 보류: 하락추세+MACD 약세+구름 아래 동시 충족)"
+    # --- RSI 게이트: RSI>=45면 매수 판정 금지 ---
+    rsi_value = rsi_r.get("raw_rsi")
+    gate_applied = False
+    if rsi_value is not None and rsi_value >= 45 and verdict in ("적극 매수", "매수"):
+        verdict = "관망"
+        gate_applied = True
+        adjustments.append(f"RSI 게이트: RSI {rsi_value:.1f} >= 45, 매수 판정 무효화 -> 관망")
 
-    items = [
-        {"name": "RSI", "detail": rsi_desc, "buy": rsi_buy, "sell": rsi_sell},
-        {"name": "볼린저밴드", "detail": bb_desc, "buy": bb_buy, "sell": bb_sell},
-        {"name": "이동평균", "detail": ma_desc, "buy": ma_buy, "sell": ma_sell},
-        {"name": "MACD", "detail": macd_desc, "buy": macd_buy, "sell": macd_sell},
-        {"name": "거래량", "detail": vol_desc, "buy": vol_buy, "sell": vol_sell},
-        {"name": "일목균형표", "detail": ichi_desc, "buy": ichi_buy, "sell": ichi_sell},
-    ]
+    emoji = {"적극 매수": "🟢", "매수": "🟢", "전량 매도": "🔴", "분할 매도": "🔴", "관망": "🟡"}[verdict]
+
+    # 상충 신호 메모
+    conflicts = []
+    if buy_total >= 40 and sell_total >= 40:
+        conflicts.append("매수·매도 점수가 모두 높게 나와 신호가 엇갈립니다")
+    if rsi_r["available"] and ma_r["available"]:
+        if rsi_r["buy"] > 0 and ma_r["sell"] > 0:
+            conflicts.append("RSI는 매수 쪽, 이동평균선은 매도 쪽을 가리킵니다")
+        elif rsi_r["sell"] > 0 and ma_r["buy"] > 0:
+            conflicts.append("RSI는 매도 쪽, 이동평균선은 매수 쪽을 가리킵니다")
 
     return {
         "name": name,
+        "ref_date": ref_date,
         "price": round(price, 2),
-        "rsi": round(rsi_value, 2),
-        "buy_score": buy_total,
-        "sell_score": sell_total,
+        "insufficient_data": False,
+        "results": results,
+        "adx": adx_value,
+        "regime": regime,
+        "adjustments": adjustments,
+        "buy_score": round(buy_total, 1),
+        "sell_score": round(sell_total, 1),
         "verdict": verdict,
-        "label": label,
         "emoji": emoji,
-        "buy_blocked": buy_blocked,
-        "items": items,
+        "gate_applied": gate_applied,
+        "conflicts": conflicts,
+        # 하위 호환(기존 rsi_alert.py의 30/25 push 알림 로직이 참조)
+        "rsi": round(rsi_value, 2) if rsi_value is not None else None,
     }
