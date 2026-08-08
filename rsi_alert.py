@@ -57,6 +57,8 @@ THRESHOLDS = [30, 25]  # 낮은 값이 더 심각하므로 둘 다 체크 (30 �
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 STATE_FILE = os.path.join(SCRIPT_DIR, "rsi_alert_state.json")
 LATEST_RSI_FILE = os.path.join(SCRIPT_DIR, "latest_rsi.json")
+KR_STOCKS_FILE = os.path.join(SCRIPT_DIR, "kr_stocks.json")
+KR_STOCKS_MAX_AGE_DAYS = 7  # 상장사 명단은 자주 안 바뀌므로 일주일에 한 번 정도만 갱신
 
 KAKAOWORK_APP_KEY = os.environ.get("KAKAOWORK_APP_KEY", "")
 KAKAOWORK_EMAIL = os.environ.get("KAKAOWORK_EMAIL", "")
@@ -73,6 +75,60 @@ KAKAO_REFRESH_TOKEN = os.environ.get("KAKAO_REFRESH_TOKEN", "")
 def get_analysis(ticker: str, name: str) -> dict:
     """RSI, 볼린저밴드, 이동평균, MACD, 거래량, 일목균형표를 종합한 매수/매도 분석 결과."""
     return analysis.analyze_ticker(ticker, name)
+
+
+# ---------------------------------------------------------------------------
+# 국내(KRX) 전체 상장사 명단 캐시 - 카카오 챗봇이 종목명으로 아무 국내 종목이나
+# 찾을 수 있도록, KRX 공식 상장법인 목록을 받아 회사명 -> 티커코드(.KS/.KQ) 매핑을 만든다.
+# 상장사 명단은 자주 바뀌지 않으므로 매번 새로 받지 않고 일정 기간 캐시를 재사용한다.
+# ---------------------------------------------------------------------------
+
+def build_kr_stock_map() -> dict:
+    import pandas as pd  # 지연 임포트 (이 함수를 안 쓰는 실행 경로에서는 불필요)
+
+    markets = {"stockMkt": ".KS", "kosdaqMkt": ".KQ"}  # 코스피 / 코스닥
+    combined = {}
+    for market_type, suffix in markets.items():
+        url = (
+            "https://kind.krx.co.kr/corpgeneral/corpList.do"
+            f"?method=download&marketType={market_type}"
+        )
+        tables = pd.read_html(url, encoding="euc-kr", converters={"종목코드": str})
+        df = tables[0]
+        for _, row in df.iterrows():
+            name = str(row["회사명"]).strip()
+            code = str(row["종목코드"]).strip().zfill(6)
+            if name and code.isdigit():
+                combined[name] = code + suffix
+    return combined
+
+
+def maybe_build_kr_stocks() -> None:
+    """kr_stocks.json이 없거나 오래됐을 때만 KRX에서 새로 받아온다."""
+    if os.path.exists(KR_STOCKS_FILE):
+        try:
+            with open(KR_STOCKS_FILE, encoding="utf-8") as f:
+                cached = json.load(f)
+            built_at = datetime.fromisoformat(cached.get("built_at", "2000-01-01"))
+            if (datetime.now() - built_at).days < KR_STOCKS_MAX_AGE_DAYS:
+                print(f"[정보] kr_stocks.json 최신 상태 (마지막 갱신: {built_at.date()}), 재생성 생략")
+                return
+        except Exception:
+            pass
+
+    print("[정보] KRX 상장사 명단 갱신 시도 중...")
+    try:
+        mapping = build_kr_stock_map()
+        if len(mapping) < 1000:  # 정상이면 코스피+코스닥 합쳐 2000개 이상이어야 함
+            raise ValueError(f"수집된 종목 수가 비정상적으로 적음: {len(mapping)}개")
+    except Exception as e:
+        print(f"[경고] KRX 상장사 명단 갱신 실패, 기존 캐시 유지: {e}")
+        return
+
+    payload = {"built_at": datetime.now().isoformat(), "stocks": mapping}
+    with open(KR_STOCKS_FILE, "w", encoding="utf-8") as f:
+        json.dump(payload, f, ensure_ascii=False, indent=2)
+    print(f"[정보] KRX 상장사 {len(mapping)}개 갱신 완료")
 
 
 # ---------------------------------------------------------------------------
@@ -245,6 +301,8 @@ def send_kakaotalk_memo(text: str) -> bool:
 # ---------------------------------------------------------------------------
 
 def run(dry_run: bool = False) -> None:
+    maybe_build_kr_stocks()  # 국내 상장사 명단 캐시 (필요할 때만 갱신)
+
     today = date.today().isoformat()
     state = load_state()
     triggered = []
