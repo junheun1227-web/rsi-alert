@@ -237,21 +237,28 @@ def format_analysis(ticker: str, info: dict, updated_at: str) -> str:
     if info.get("insufficient_data"):
         missing = ", ".join(info.get("missing", []))
         return (
-            f"[{info['name']}({ticker})] 기준일 {info.get('ref_date', '알 수 없음')}\n"
-            f"데이터 없음: {missing} 등 3개 이상 지표를 계산할 만큼 거래 이력이 충분하지 않아 "
-            f"점수를 산출하지 않았습니다.\n"
-            f"(상장 초기 종목이거나 야후 파이낸스에 데이터가 부족한 종목일 수 있어요. "
-            f"다른 종목명/티커로 다시 시도해주세요.)\n"
+            f"{info['name']}({ticker}) — 점수 산출 불가\n"
+            f"기준일: {info.get('ref_date', '-')} 종가 | 종가: {fmt_price(info['price'])} | "
+            f"데이터 신뢰도: {info.get('confidence', 0)}%\n\n"
+            f"데이터 없음 지표(4개 이상): {missing}\n"
+            f"위 지표값을 알려주시면 그 값으로 점수를 산출하겠습니다.\n"
             f"기준시각: {updated_at}"
         )
 
     results = info["results"]
     order = info.get("order", list(results.keys()))
 
-    # --- 헤더: 종합 판정을 맨 앞에 ---
+    def R(label):
+        return results.get(label, {"reason": "데이터 없음", "available": False})
+
+    conf = info.get("confidence", 0)
+    conf_tag = " (데이터 부족)" if info.get("low_confidence") else ""
+
+    # --- 헤더 ---
     lines = [
-        f"{info['name']}({ticker}) — **{info['verdict']}** | 매수 {info['buy_score']:g}점 / 매도 {info['sell_score']:g}점",
-        f"기준일: {info.get('ref_date', '')} 종가 | 종가: {fmt_price(info['price'])}",
+        f"{info['name']}({ticker}) {info['emoji']} **{info['verdict']}**{conf_tag} | "
+        f"매수 {info['buy_score']:g}점 / 매도 {info['sell_score']:g}점",
+        f"기준일: {info.get('ref_date', '')} 종가 | 종가: {fmt_price(info['price'])} | 데이터 신뢰도: {conf}%",
         "",
         "## 지표 요약",
         "| 지표 | 현재값 | 매수 | 매도 |",
@@ -261,12 +268,18 @@ def format_analysis(ticker: str, info: dict, updated_at: str) -> str:
         r = results[label]
         lines.append(f"| {label} | {r['value']} | {r['buy']:g} | {r['sell']:g} |")
 
-    # --- 판정 근거 ---
-    short = {"RSI(14)": "RSI", "볼린저밴드 %B": "볼린저밴드", "이동평균선": "이동평균선",
-             "MACD": "MACD", "거래량": "거래량", "일목균형표": "일목균형표"}
-    lines += ["", "## 판정 근거"]
-    for label in order:
-        lines.append(f"- **{short.get(label, label)}**: {results[label]['reason']}")
+    # --- 판정 근거 (5개 그룹) ---
+    lines += [
+        "",
+        "## 판정 근거",
+        f"- **모멘텀(RSI·스토캐스틱·CCI)**: {R('RSI(14)')['reason']}. "
+        f"{R('스토캐스틱')['reason']}. {R('CCI(14)')['reason']}.",
+        f"- **추세(이평선·MACD·일목)**: {R('이동평균선')['reason']}. "
+        f"{R('MACD')['reason']}. {R('일목균형표')['reason']}.",
+        f"- **변동성(볼린저·ATR)**: {R('볼린저 %B')['reason']}. {R('ATR(14)')['reason']}.",
+        f"- **수급(거래량·OBV)**: {R('거래량/OBV')['reason']}.",
+        f"- **가격 구조(지지저항·캔들)**: {R('지지·저항')['reason']}. {R('캔들 패턴')['reason']}.",
+    ]
 
     # --- 종합 ---
     adx = info.get("adx")
@@ -274,13 +287,13 @@ def format_analysis(ticker: str, info: dict, updated_at: str) -> str:
     lines += [
         "",
         "## 종합",
-        f"- 장세: ADX {adx_txt} → {info.get('regime', '중립')} → {info.get('weight_desc', '')}",
-        f"- 보정: 매수 소계 {info.get('buy_subtotal', 0):g}점 / 매도 소계 {info.get('sell_subtotal', 0):g}점. "
-        + " ".join(info.get("corrections", [])),
+        f"- 장세: ADX {adx_txt} / DI {info.get('di_dir', '-')} → {info.get('regime', '-')} → {info.get('weight_desc', '')}",
+        f"- 시간프레임: {info.get('timeframe', '-')}",
+        f"- 보정 내역: {' / '.join(info.get('corrections', []))}",
         f"- 상충 신호: {' '.join(info.get('conflicts', []))}",
+        f"- 관찰 포인트: {' '.join(info.get('watch', []))}",
         "",
         f"기준시각: {updated_at}",
-        "※ 투자 권유가 아닌 기술적 분석 모델 기반 참고 정보입니다.",
     ]
     return "\n".join(lines)
 
