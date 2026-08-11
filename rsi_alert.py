@@ -343,7 +343,7 @@ def run(dry_run: bool = False) -> None:
         print(
             f"  {ticker:6s} ({result['name']:10s}) RSI={result['rsi']:6.2f}  "
             f"가격=${result['price']:,.2f}  판단={result['emoji']}{result['verdict']} "
-            f"(매수 {result['buy_score']}/100, 매도 {result['sell_score']}/100){flag}"
+            f"(매수 {result['buy_score']}, 매도 {result['sell_score']}, 신뢰도 {result.get('confidence', 0)}%){flag}"
         )
 
     save_latest_rsi(analyses, ts)  # 챗봇 질의응답용 캐시 갱신 (항상 저장)
