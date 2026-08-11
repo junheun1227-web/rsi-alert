@@ -245,25 +245,42 @@ def format_analysis(ticker: str, info: dict, updated_at: str) -> str:
             f"기준시각: {updated_at}"
         )
 
-    # 종합 요약의견을 메시지 맨 앞에 먼저 노출 (매수/매도 결론을 바로 확인할 수 있도록)
+    results = info["results"]
+    order = info.get("order", list(results.keys()))
+
+    # --- 헤더: 종합 판정을 맨 앞에 ---
     lines = [
-        f"[{info['name']}({ticker})]  {info['emoji']} 종합의견: {info['verdict']}",
-        f"매수 {info['buy_score']}/100   매도 {info['sell_score']}/100   기준일 {info.get('ref_date', '')}  종가 {fmt_price(info['price'])}",
+        f"{info['name']}({ticker}) — **{info['verdict']}** | 매수 {info['buy_score']:g}점 / 매도 {info['sell_score']:g}점",
+        f"기준일: {info.get('ref_date', '')} 종가 | 종가: {fmt_price(info['price'])}",
+        "",
+        "## 지표 요약",
+        "| 지표 | 현재값 | 매수 | 매도 |",
+        "|---|---|---|---|",
     ]
-    for adj in info.get("adjustments", []):
-        lines.append(f"- {adj}")
-    if info.get("conflicts"):
-        for c in info["conflicts"]:
-            lines.append(f"- 상충 신호: {c}")
+    for label in order:
+        r = results[label]
+        lines.append(f"| {label} | {r['value']} | {r['buy']:g} | {r['sell']:g} |")
 
-    lines += ["", "지표별 판정 근거"]
-    for label, r in info["results"].items():
-        lines.append(f"- {label}: {r['detail']}  (매수 {r['buy']:.0f}점 / 매도 {r['sell']:.0f}점)")
+    # --- 판정 근거 ---
+    short = {"RSI(14)": "RSI", "볼린저밴드 %B": "볼린저밴드", "이동평균선": "이동평균선",
+             "MACD": "MACD", "거래량": "거래량", "일목균형표": "일목균형표"}
+    lines += ["", "## 판정 근거"]
+    for label in order:
+        lines.append(f"- **{short.get(label, label)}**: {results[label]['reason']}")
 
+    # --- 종합 ---
+    adx = info.get("adx")
+    adx_txt = f"{adx:.1f}" if adx is not None else "계산 불가"
     lines += [
         "",
+        "## 종합",
+        f"- 장세: ADX {adx_txt} → {info.get('regime', '중립')} → {info.get('weight_desc', '')}",
+        f"- 보정: 매수 소계 {info.get('buy_subtotal', 0):g}점 / 매도 소계 {info.get('sell_subtotal', 0):g}점. "
+        + " ".join(info.get("corrections", [])),
+        f"- 상충 신호: {' '.join(info.get('conflicts', []))}",
+        "",
         f"기준시각: {updated_at}",
-        "※ 투자 권유가 아닌 정의된 기술적 분석 모델 기반 참고 정보이며, 미래 수익을 보장하지 않습니다.",
+        "※ 투자 권유가 아닌 기술적 분석 모델 기반 참고 정보입니다.",
     ]
     return "\n".join(lines)
 
