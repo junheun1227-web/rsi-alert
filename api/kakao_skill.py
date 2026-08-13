@@ -226,9 +226,9 @@ def build_kakao_response(text: str) -> dict:
 
 
 def format_analysis(ticker: str, info: dict, updated_at: str) -> str:
-    """6개 지표(RSI/볼린저/이평선/MACD/거래량/일목균형표) 종합 매수·매도 분석을
-    사용자 지정 출력 형식(종목/기준일/지표별 근거표/종합판정)으로 정리.
-    카카오톡 simpleText는 마크다운 표·굵게를 렌더링하지 않으므로 일반 텍스트로 정렬한다."""
+    """11개 지표 종합 매수·매도 분석을 카카오톡 simpleText용 일반 텍스트로 정리.
+    simpleText는 마크다운(표·굵게·헤더)을 렌더링하지 않고 글자 그대로 보여주므로
+    |, **, ## 등은 전부 배제하고, 의견과 점수를 별도 줄로 분리해 가독성을 높인다."""
     currency = "₩" if ticker.upper().endswith((".KS", ".KQ")) else "$"
 
     def fmt_price(p):
@@ -238,8 +238,7 @@ def format_analysis(ticker: str, info: dict, updated_at: str) -> str:
         missing = ", ".join(info.get("missing", []))
         return (
             f"{info['name']}({ticker}) — 점수 산출 불가\n"
-            f"기준일: {info.get('ref_date', '-')} 종가 | 종가: {fmt_price(info['price'])} | "
-            f"데이터 신뢰도: {info.get('confidence', 0)}%\n\n"
+            f"기준일 {info.get('ref_date', '-')} 종가 {fmt_price(info['price'])}\n"
             f"데이터 없음 지표(4개 이상): {missing}\n"
             f"위 지표값을 알려주시면 그 값으로 점수를 산출하겠습니다.\n"
             f"기준시각: {updated_at}"
@@ -252,33 +251,34 @@ def format_analysis(ticker: str, info: dict, updated_at: str) -> str:
         return results.get(label, {"reason": "데이터 없음", "available": False})
 
     conf = info.get("confidence", 0)
-    conf_tag = " (데이터 부족)" if info.get("low_confidence") else ""
 
-    # --- 헤더 ---
+    # --- 1줄: 종목, 2줄: 의견, 3줄: 점수 (요청하신 대로 서로 다른 줄로 분리) ---
     lines = [
-        f"{info['name']}({ticker}) {info['emoji']} **{info['verdict']}**{conf_tag} | "
+        f"{info['name']}({ticker})",
+        f"{info['emoji']} {info['verdict']}",
         f"매수 {info['buy_score']:g}점 / 매도 {info['sell_score']:g}점",
-        f"기준일: {info.get('ref_date', '')} 종가 | 종가: {fmt_price(info['price'])} | 데이터 신뢰도: {conf}%",
+        f"기준일 {info.get('ref_date', '')} 종가 {fmt_price(info['price'])}",
         "",
-        "## 지표 요약",
-        "| 지표 | 현재값 | 매수 | 매도 |",
-        "|---|---|---|---|",
+        "[지표 요약]",
     ]
     for label in order:
         r = results[label]
-        lines.append(f"| {label} | {r['value']} | {r['buy']:g} | {r['sell']:g} |")
+        if not r.get("available"):
+            lines.append(f"· {label}: 데이터 없음")
+        else:
+            lines.append(f"· {label}: {r['value']} (매수{r['buy']:g}/매도{r['sell']:g})")
 
     # --- 판정 근거 (5개 그룹) ---
     lines += [
         "",
-        "## 판정 근거",
-        f"- **모멘텀(RSI·스토캐스틱·CCI)**: {R('RSI(14)')['reason']}. "
+        "[판정 근거]",
+        f"모멘텀(RSI·스토캐스틱·CCI): {R('RSI(14)')['reason']}. "
         f"{R('스토캐스틱')['reason']}. {R('CCI(14)')['reason']}.",
-        f"- **추세(이평선·MACD·일목)**: {R('이동평균선')['reason']}. "
+        f"추세(이평선·MACD·일목): {R('이동평균선')['reason']}. "
         f"{R('MACD')['reason']}. {R('일목균형표')['reason']}.",
-        f"- **변동성(볼린저·ATR)**: {R('볼린저 %B')['reason']}. {R('ATR(14)')['reason']}.",
-        f"- **수급(거래량·OBV)**: {R('거래량/OBV')['reason']}.",
-        f"- **가격 구조(지지저항·캔들)**: {R('지지·저항')['reason']}. {R('캔들 패턴')['reason']}.",
+        f"변동성(볼린저·ATR): {R('볼린저 %B')['reason']}. {R('ATR(14)')['reason']}.",
+        f"수급(거래량·OBV): {R('거래량/OBV')['reason']}.",
+        f"가격 구조(지지저항·캔들): {R('지지·저항')['reason']}. {R('캔들 패턴')['reason']}.",
     ]
 
     # --- 종합 ---
@@ -286,15 +286,28 @@ def format_analysis(ticker: str, info: dict, updated_at: str) -> str:
     adx_txt = f"{adx:.1f}" if adx is not None else "계산 불가"
     lines += [
         "",
-        "## 종합",
-        f"- 장세: ADX {adx_txt} / DI {info.get('di_dir', '-')} → {info.get('regime', '-')} → {info.get('weight_desc', '')}",
-        f"- 시간프레임: {info.get('timeframe', '-')}",
-        f"- 보정 내역: {' / '.join(info.get('corrections', []))}",
-        f"- 상충 신호: {' '.join(info.get('conflicts', []))}",
-        f"- 관찰 포인트: {' '.join(info.get('watch', []))}",
-        "",
-        f"기준시각: {updated_at}",
+        "[종합]",
+        f"장세: ADX {adx_txt} / DI {info.get('di_dir', '-')} → {info.get('regime', '-')}",
+        f"시간프레임: {info.get('timeframe', '-')}",
+        "보정 내역:",
     ]
+    lines += [f"  - {c}" for c in info.get("corrections", [])]
+    lines += [
+        f"상충 신호: {' '.join(info.get('conflicts', []))}",
+        f"관찰 포인트: {' '.join(info.get('watch', []))}",
+    ]
+
+    # 데이터 신뢰도는 지표 11개가 전부 확보된 우량주에서는 항상 100%라 매번 보여주면
+    # 의미 없는 형식 문구가 된다. 실제로 지표가 빠져 신뢰도가 깎인 경우에만,
+    # 어떤 지표가 왜 빠졌는지와 함께 보여준다.
+    if conf < 100:
+        missing = info.get("missing", [])
+        reason = f" ({', '.join(missing)} 데이터 부족)" if missing else ""
+        impact = "판정이 한 단계 보수적으로 조정되었습니다" if info.get("low_confidence") \
+            else "70% 이상이라 판정에는 영향 없음"
+        lines.append(f"데이터 신뢰도 {conf}%{reason} — {impact}")
+
+    lines.append(f"기준시각: {updated_at}")
     return "\n".join(lines)
 
 
