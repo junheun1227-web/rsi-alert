@@ -154,8 +154,10 @@ def score_rsi(close: pd.Series) -> dict:
     if pd.isna(rsi):
         return _nodata()
 
+    # RSI 50~70대는 상승 추세에서 정상적인 강세 구간이라 매도 신호로 보지 않는다.
+    # 진짜 과매수(추격 매수 자제)는 70 이상부터, 극단적 과매수는 80 이상으로 본다.
     buy = 15 if rsi <= 30 else (11 if rsi <= 40 else (6 if rsi <= 45 else 0))
-    sell = 15 if rsi >= 70 else (11 if rsi >= 60 else (6 if rsi >= 55 else 0))
+    sell = 15 if rsi >= 80 else (9 if rsi >= 70 else 0)
 
     # 다이버전스 (최근 14일 저점/고점 대비 가격-RSI 방향 불일치)
     bull = bear = False
@@ -182,7 +184,8 @@ def score_rsi(close: pd.Series) -> dict:
     div_txt = "상승 다이버전스 확인" if bull else ("하락 다이버전스 확인" if bear else "다이버전스 없음")
     return {"available": True, "buy": buy, "sell": sell, "value": f"{rsi:.1f}",
             "detail": f"{rsi:.1f} {zone}",
-            "reason": f"RSI {rsi:.1f}로 {zone}, {dir_txt}, {div_txt}", "raw_rsi": rsi}
+            "reason": f"RSI {rsi:.1f}로 {zone}, {dir_txt}, {div_txt}", "raw_rsi": rsi,
+            "bull_div": bull, "bear_div": bear}
 
 
 def score_stochastic(high, low, close) -> dict:
@@ -730,16 +733,25 @@ def analyze_ticker(ticker: str, name: str) -> dict:
 
     verdict = classify(buy, sell)
 
-    # ⑥ RSI 게이트
+    # ⑥ RSI 게이트 — RSI 50~70대는 상승 추세의 정상적인 강세 구간이므로 그 자체로는
+    # 매수 판정을 깎지 않는다. 진짜 "추격 매수/매도 자제" 신호로 보는 경우만 강등한다:
+    # 극단적 과매수/과매도(80 이상 / 20 이하), 또는 70대·30대이면서 반대 방향 다이버전스가
+    # 동반돼 고점·저점 소진 정황이 함께 확인될 때만 적용한다.
     rsi_val = results["RSI(14)"].get("raw_rsi")
+    rsi_bear_div = results["RSI(14)"].get("bear_div", False)
+    rsi_bull_div = results["RSI(14)"].get("bull_div", False)
     if rsi_val is not None:
-        if rsi_val >= 55 and verdict in BUY_LADDER[:-1]:
+        buy_gate = rsi_val >= 80 or (rsi_val >= 70 and rsi_bear_div)
+        sell_gate = rsi_val <= 20 or (rsi_val <= 30 and rsi_bull_div)
+        if buy_gate and verdict in BUY_LADDER[:-1]:
             new = _downgrade(verdict)
-            corrections.append(f"⑥RSI {rsi_val:.1f}≥55 → 매수 판정 '{verdict}'→'{new}'")
+            tag = "극단적 과매수" if rsi_val >= 80 else "과매수+하락다이버전스"
+            corrections.append(f"⑥RSI {rsi_val:.1f} {tag} → 매수 판정 '{verdict}'→'{new}'")
             verdict = new
-        elif rsi_val <= 45 and verdict in SELL_LADDER[:-1]:
+        elif sell_gate and verdict in SELL_LADDER[:-1]:
             new = _downgrade(verdict)
-            corrections.append(f"⑥RSI {rsi_val:.1f}≤45 → 매도 판정 '{verdict}'→'{new}'")
+            tag = "극단적 과매도" if rsi_val <= 20 else "과매도+상승다이버전스"
+            corrections.append(f"⑥RSI {rsi_val:.1f} {tag} → 매도 판정 '{verdict}'→'{new}'")
             verdict = new
         else:
             corrections.append(f"⑥RSI {rsi_val:.1f} → 게이트 미발동")
