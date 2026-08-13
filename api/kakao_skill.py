@@ -253,10 +253,12 @@ def format_analysis(ticker: str, info: dict, updated_at: str) -> str:
     conf = info.get("confidence", 0)
 
     # --- 1줄: 종목, 2줄: 의견, 3줄: 점수 (요청하신 대로 서로 다른 줄로 분리) ---
+    # 배점 원점(지표 15+8+12+15+15+10+12+5+5+5+8=110)을 그대로 보여줘 "몇 점 만점인지"가
+    # 명확하도록 한다. 장세·주봉 가중치가 겹치면 110을 넘게 표시될 수도 있다.
     lines = [
         f"{info['name']}({ticker})",
         f"{info['emoji']} {info['verdict']}",
-        f"매수 {info['buy_score']:g}점 / 매도 {info['sell_score']:g}점",
+        f"매수 {info['buy_score']:g}점 / 매도 {info['sell_score']:g}점 (110점 만점)",
         f"기준일 {info.get('ref_date', '')} 종가 {fmt_price(info['price'])}",
         "",
         "[지표 요약]",
@@ -296,6 +298,21 @@ def format_analysis(ticker: str, info: dict, updated_at: str) -> str:
         f"상충 신호: {' '.join(info.get('conflicts', []))}",
         f"관찰 포인트: {' '.join(info.get('watch', []))}",
     ]
+
+    # --- 뉴스 (참고용) ---
+    # 점수 산정과는 무관하고, 헤드라인 키워드만으로 호재/악재를 태깅한 단순 규칙 기반이라
+    # 참고용임을 명시한다. 조회 실패해도 전체 응답이 죽지 않도록 항상 try로 감싼다.
+    try:
+        news = analysis.fetch_news(ticker, limit=3)
+    except Exception:
+        news = []
+    lines += ["", "[관련 뉴스 — 참고용, 키워드 기반 자동 판정]"]
+    if news:
+        for n in news:
+            src = f" ({n['publisher']})" if n.get("publisher") else ""
+            lines.append(f"· [{n['tag']}] {n['title']}{src}")
+    else:
+        lines.append("· 조회된 최신 뉴스가 없습니다")
 
     # 데이터 신뢰도는 지표 11개가 전부 확보된 우량주에서는 항상 100%라 매번 보여주면
     # 의미 없는 형식 문구가 된다. 실제로 지표가 빠져 신뢰도가 깎인 경우에만,
