@@ -632,18 +632,49 @@ def _mentions(text_l: str, symbol: str) -> bool:
     return re.search(rf"\b{re.escape(symbol.lower())}\b", text_l) is not None
 
 
-def fetch_news(ticker: str, name: str = "", limit: int = 3) -> list:
+def _fetch_news_kr(ticker: str, limit: int) -> list:
+    """국내(.KS/.KQ) 종목은 야후보다 네이버 금융의 종목별 뉴스 탭을 쓴다. 네이버가
+    종목코드로 직접 태깅해 배포하는 뉴스라 관련성이 훨씬 높고, 원문이 이미 한국어라
+    번역이 필요 없다. 야후의 국내 종목 뉴스는 거의 비어 있거나 무관한 경우가 많아
+    아예 이 경로로 대체한다."""
+    from bs4 import BeautifulSoup
+
+    code = ticker.split(".")[0]
+    resp = requests.get(
+        "https://finance.naver.com/item/news_news.naver",
+        params={"code": code, "page": 1, "sm": "title_entity_id.basic"},
+        headers={
+            "User-Agent": "Mozilla/5.0",
+            "Referer": f"https://finance.naver.com/item/main.naver?code={code}",
+        },
+        timeout=5,
+    )
+    resp.encoding = resp.apparent_encoding
+    soup = BeautifulSoup(resp.text, "html.parser")
+
+    out = []
+    for row in soup.select("table.type5 tr"):
+        a = row.select_one("td.title a")
+        if not a:
+            continue
+        title = a.get_text(strip=True)
+        if not title:
+            continue
+        info_td = row.select_one("td.info")
+        publisher = info_td.get_text(strip=True) if info_td else ""
+        out.append({"title": title, "publisher": publisher, "tag": _tag_headline(title)})
+        if len(out) >= limit:
+            break
+    return out
+
+
+def _fetch_news_yahoo(ticker: str, name: str, limit: int) -> list:
     """야후 파이낸스 최신 뉴스 헤드라인을 가져와 (1) 실제로 이 종목과 관련된 기사만 추리고
     (2) 제목에 담긴 키워드로 호재/악재/중립을 태깅한 뒤 (3) 한국어로 번역해 반환한다.
     관련성 판정: 야후가 명시한 관련 티커에 포함되거나, 제목·요약에 티커 심볼(단어 단위)이나
     회사명이 실제로 등장하는 기사만 채택한다 — 이걸로도 걸러지지 않으면 그냥 제외한다
-    (억지로 채워서 무관한 기사를 보여주지 않는다).
-    태깅은 기사 본문을 읽고 판단하는 게 아니라 단순 단어 매칭이라 반어법·복합 맥락은
-    반영하지 못하는 참고용 정보다. 매수/매도 점수 산정에는 포함하지 않는다."""
-    try:
-        items = yf.Ticker(ticker).news or []
-    except Exception:
-        return []
+    (억지로 채워서 무관한 기사를 보여주지 않는다)."""
+    items = yf.Ticker(ticker).news or []
 
     base_symbol = ticker.split(".")[0]
     name_l = (name or "").strip().lower()
@@ -675,6 +706,20 @@ def fetch_news(ticker: str, name: str = "", limit: int = 3) -> list:
         if len(out) >= limit:
             break
     return out
+
+
+def fetch_news(ticker: str, name: str = "", limit: int = 3) -> list:
+    """국내 종목(.KS/.KQ)은 네이버 금융, 그 외는 야후 파이낸스에서 뉴스를 가져온다.
+    태깅은 기사 본문을 읽고 판단하는 게 아니라 단순 단어 매칭이라 반어법·복합 맥락은
+    반영하지 못하는 참고용 정보이며, 매수/매도 점수 산정에는 포함하지 않는다.
+    조회 실패 시(네트워크 오류, 페이지 구조 변경 등) 전체 응답이 죽지 않도록 빈 리스트를
+    반환한다."""
+    try:
+        if ticker.upper().endswith((".KS", ".KQ")):
+            return _fetch_news_kr(ticker, limit)
+        return _fetch_news_yahoo(ticker, name, limit)
+    except Exception:
+        return []
 
 
 # ---------------------------------------------------------------------------
