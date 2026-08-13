@@ -569,13 +569,68 @@ def earnings_imminent(ticker: str):
 
 
 # ---------------------------------------------------------------------------
+# 뉴스 헤드라인 (참고용 — 단순 키워드 매칭이라 점수 산정에는 반영하지 않는다)
+# ---------------------------------------------------------------------------
+
+_NEWS_POS_WORDS = [
+    "surge", "surges", "beat", "beats", "record", "upgrade", "upgraded", "raises",
+    "raised", "growth", "profit", "soar", "soars", "jump", "jumps", "rally", "rallies",
+    "outperform", "expands", "wins", "win", "approval", "approved", "partnership",
+    "buyback", "dividend hike", "strong demand", "탄력", "호조", "급등", "상향",
+    "실적 호조", "신고가", "수주", "특허", "승인", "협력", "자사주", "배당", "흑자전환",
+]
+_NEWS_NEG_WORDS = [
+    "plunge", "plunges", "miss", "misses", "cut", "cuts", "downgrade", "downgraded",
+    "lawsuit", "sues", "sued", "probe", "recall", "recalls", "loss", "losses", "warns",
+    "warning", "decline", "declines", "drop", "drops", "falls", "investigation",
+    "fraud", "fine", "fined", "delay", "delays", "layoff", "layoffs", "급락", "하향",
+    "적자", "리콜", "소송", "조사", "벌금", "부진", "경고", "감원", "구조조정", "제재",
+]
+
+
+def _tag_headline(title: str) -> str:
+    t = title.lower()
+    pos = any(w in t for w in _NEWS_POS_WORDS)
+    neg = any(w in t for w in _NEWS_NEG_WORDS)
+    if pos and not neg:
+        return "호재"
+    if neg and not pos:
+        return "악재"
+    return "중립"
+
+
+def fetch_news(ticker: str, limit: int = 3) -> list:
+    """야후 파이낸스 최신 뉴스 헤드라인을 가져와 제목에 담긴 키워드만으로 호재/악재/중립을
+    태깅한다. 기사 본문을 읽고 판단하는 게 아니라 단순 단어 매칭이므로 반어법·복합 맥락은
+    반영하지 못하는 참고용 정보다. 매수/매도 점수 산정에는 포함하지 않는다."""
+    try:
+        items = yf.Ticker(ticker).news or []
+    except Exception:
+        return []
+    out = []
+    for it in items:
+        content = it.get("content") if isinstance(it.get("content"), dict) else it
+        title = (content or {}).get("title") or it.get("title")
+        if not title:
+            continue
+        provider = (content or {}).get("provider") if isinstance((content or {}).get("provider"), dict) else None
+        publisher = (provider or {}).get("displayName") or it.get("publisher") or ""
+        out.append({"title": title.strip(), "publisher": publisher, "tag": _tag_headline(title)})
+        if len(out) >= limit:
+            break
+    return out
+
+
+# ---------------------------------------------------------------------------
 # 판정 사다리
 # ---------------------------------------------------------------------------
 
-BUY_LADDER = ["적극 매수", "매수", "관심(매수 워치)", "관망"]
-SELL_LADDER = ["전량 매도", "분할 매도", "관심(매도 워치)", "관망"]
-EMOJI = {"적극 매수": "🟢🟢", "매수": "🟢", "관심(매수 워치)": "🟡",
-         "전량 매도": "🔴🔴", "분할 매도": "🔴", "관심(매도 워치)": "🟡",
+# 기존엔 35~50점이 "관심"으로 통째로 묶여, 40점대 초중반처럼 꽤 뚜렷한 강세도
+# 근소한 관심 신호와 구분이 안 됐다. 20/35/50/70 네 경계로 5단계씩 세분화한다.
+BUY_LADDER = ["적극 매수", "매수", "비중확대 검토(매수 관심)", "관심(매수 워치)", "관망"]
+SELL_LADDER = ["전량 매도", "분할 매도", "비중축소 검토(매도 관심)", "관심(매도 워치)", "관망"]
+EMOJI = {"적극 매수": "🟢🟢", "매수": "🟢", "비중확대 검토(매수 관심)": "🟢🟡", "관심(매수 워치)": "🟡",
+         "전량 매도": "🔴🔴", "분할 매도": "🔴", "비중축소 검토(매도 관심)": "🔴🟡", "관심(매도 워치)": "🟡",
          "혼조(신호 상충, 관망)": "🟡", "관망": "⚪"}
 
 
@@ -599,8 +654,12 @@ def classify(buy: float, sell: float) -> str:
     if sell >= 50:
         return "분할 매도"
     if buy >= 35:
-        return "관심(매수 워치)"
+        return "비중확대 검토(매수 관심)"
     if sell >= 35:
+        return "비중축소 검토(매도 관심)"
+    if buy >= 20:
+        return "관심(매수 워치)"
+    if sell >= 20:
         return "관심(매도 워치)"
     return "관망"
 
@@ -693,16 +752,19 @@ def analyze_ticker(ticker: str, name: str) -> dict:
             tf_txt = f"일봉 {daily_side} / 주봉 {wk['verdict']} → 상충"
             corrections.append(f"②주봉 상충 → 해당 점수 x0.85 (매수 {buy:g} / 매도 {sell:g})")
 
-    # ③ 시장지수 필터
+    # ③ 시장지수 필터 — "추세를 거스르지 마라"는 원칙은 반대 방향을 깎는 것뿐 아니라
+    # 같은 방향을 소폭 밀어주는 것도 포함한다(비중은 절반으로, 과도한 가산은 피함).
     idx = market_index_state(ticker)
     if idx is None:
         corrections.append("③시장지수 조회 실패 → 보정 생략")
     elif not idx["above_ma20"] and not idx["rising"]:
         buy = round(buy - 8, 1)
-        corrections.append(f"③{idx['name']} 20일선 아래+하락 → 매수 -8 = {buy:g}")
+        sell = round(sell + 4, 1)
+        corrections.append(f"③{idx['name']} 20일선 아래+하락 → 매수 -8 / 매도 +4 = 매수 {buy:g} / 매도 {sell:g}")
     elif idx["above_ma20"] and idx["rising"]:
         sell = round(sell - 8, 1)
-        corrections.append(f"③{idx['name']} 20일선 위+상승 → 매도 -8 = {sell:g}")
+        buy = round(buy + 4, 1)
+        corrections.append(f"③{idx['name']} 20일선 위+상승 → 매도 -8 / 매수 +4 = 매수 {buy:g} / 매도 {sell:g}")
     else:
         corrections.append(f"③{idx['name']} 중립 → 보정 없음")
 
@@ -756,14 +818,15 @@ def analyze_ticker(ticker: str, name: str) -> dict:
         else:
             corrections.append(f"⑥RSI {rsi_val:.1f} → 게이트 미발동")
 
-    # ⑦ 신뢰도 보정
+    # ⑦ 신뢰도 보정 — 11개 지표가 모두 확보된 경우(우량주 대다수)엔 매번 "보정 없음"만
+    # 찍혀 형식적인 줄이 되므로, 실제로 지표가 빠져 신뢰도가 깎였을 때만 기록한다.
     low_conf = confidence < 70
     if low_conf and verdict != "관망":
         new = _downgrade(verdict)
         corrections.append(f"⑦데이터 신뢰도 {confidence}%<70 → '{verdict}'→'{new}'")
         verdict = new
-    else:
-        corrections.append(f"⑦데이터 신뢰도 {confidence}% → 보정 없음")
+    elif missing:
+        corrections.append(f"⑦데이터 신뢰도 {confidence}% ({', '.join(missing)} 없음, 70% 이상이라 보정 없음)")
 
     emoji = EMOJI.get(verdict, "⚪")
 
