@@ -20,8 +20,11 @@
 향후 주가 예측·목표가는 산출하지 않는다.
 """
 
+import re
+
 import numpy as np
 import pandas as pd
+import requests
 import yfinance as yf
 
 RSI_PERIOD = 14
@@ -599,23 +602,76 @@ def _tag_headline(title: str) -> str:
     return "중립"
 
 
-def fetch_news(ticker: str, limit: int = 3) -> list:
-    """야후 파이낸스 최신 뉴스 헤드라인을 가져와 제목에 담긴 키워드만으로 호재/악재/중립을
-    태깅한다. 기사 본문을 읽고 판단하는 게 아니라 단순 단어 매칭이므로 반어법·복합 맥락은
+def _is_korean(text: str) -> bool:
+    return any("가" <= ch <= "힣" for ch in text)
+
+
+def _translate_to_ko(text: str) -> str:
+    """구글 번역 비공식 엔드포인트(API 키 불필요)로 영문 제목을 한국어로 옮긴다.
+    비공식 엔드포인트라 언제든 실패할 수 있으므로, 실패 시 원문 제목을 그대로 반환해
+    응답 자체가 끊기지 않게 한다."""
+    if not text or _is_korean(text):
+        return text
+    try:
+        resp = requests.get(
+            "https://translate.googleapis.com/translate_a/single",
+            params={"client": "gtx", "sl": "auto", "tl": "ko", "dt": "t", "q": text},
+            timeout=3,
+        )
+        data = resp.json()
+        return "".join(seg[0] for seg in data[0])
+    except Exception:
+        return text
+
+
+def _mentions(text_l: str, symbol: str) -> bool:
+    """텍스트에 티커 심볼이 '단어'로서 등장하는지 확인한다(예: 'F' 같은 짧은 심볼이
+    아무 단어에나 부분일치하는 오탐을 막기 위해 단어 경계로 매칭)."""
+    if len(symbol) < 2:
+        return False
+    return re.search(rf"\b{re.escape(symbol.lower())}\b", text_l) is not None
+
+
+def fetch_news(ticker: str, name: str = "", limit: int = 3) -> list:
+    """야후 파이낸스 최신 뉴스 헤드라인을 가져와 (1) 실제로 이 종목과 관련된 기사만 추리고
+    (2) 제목에 담긴 키워드로 호재/악재/중립을 태깅한 뒤 (3) 한국어로 번역해 반환한다.
+    관련성 판정: 야후가 명시한 관련 티커에 포함되거나, 제목·요약에 티커 심볼(단어 단위)이나
+    회사명이 실제로 등장하는 기사만 채택한다 — 이걸로도 걸러지지 않으면 그냥 제외한다
+    (억지로 채워서 무관한 기사를 보여주지 않는다).
+    태깅은 기사 본문을 읽고 판단하는 게 아니라 단순 단어 매칭이라 반어법·복합 맥락은
     반영하지 못하는 참고용 정보다. 매수/매도 점수 산정에는 포함하지 않는다."""
     try:
         items = yf.Ticker(ticker).news or []
     except Exception:
         return []
+
+    base_symbol = ticker.split(".")[0]
+    name_l = (name or "").strip().lower()
+
     out = []
     for it in items:
         content = it.get("content") if isinstance(it.get("content"), dict) else it
         title = (content or {}).get("title") or it.get("title")
+        summary = (content or {}).get("summary") or it.get("summary") or ""
         if not title:
             continue
+
+        related = it.get("relatedTickers") or (content or {}).get("relatedTickers") or []
+        related_syms = {str(r).upper().split(".")[0] for r in related} if isinstance(related, list) else set()
+        text_l = f"{title} {summary}".lower()
+
+        is_related = (
+            base_symbol.upper() in related_syms
+            or _mentions(text_l, base_symbol)
+            or (name_l and name_l in text_l)
+        )
+        if not is_related:
+            continue
+
         provider = (content or {}).get("provider") if isinstance((content or {}).get("provider"), dict) else None
         publisher = (provider or {}).get("displayName") or it.get("publisher") or ""
-        out.append({"title": title.strip(), "publisher": publisher, "tag": _tag_headline(title)})
+        tag = _tag_headline(title)  # 태깅은 번역 전 원문 기준(키워드 목록이 영/한 혼합이라 원문이 더 안정적)
+        out.append({"title": _translate_to_ko(title.strip()), "publisher": publisher, "tag": tag})
         if len(out) >= limit:
             break
     return out
